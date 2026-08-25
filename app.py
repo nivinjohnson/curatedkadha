@@ -5,7 +5,7 @@ from store_backend import get_cart_counts, init_state
 SIZE_ORDER = ["FREE_SIZE", "XS", "S", "M", "L", "XL", "XXL", "3XL"]
 
 st.set_page_config(
-    page_title="Insta shop",
+    page_title="Curated Kadha",
     page_icon=":material/storefront:",
     layout="wide",
     initial_sidebar_state="collapsed",

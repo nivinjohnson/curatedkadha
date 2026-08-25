@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
 from store_backend import (
@@ -11,6 +13,18 @@ from store_backend import (
     refresh_catalog_parsed_fields,
     save_product_info,
 )
+
+def _secret_or_env(key: str, default: str = "") -> str:
+    try:
+        if key in st.secrets:
+            return str(st.secrets[key])
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
+
+STOCK_PAGE_USERNAME = _secret_or_env("STOCK_PAGE_USERNAME")
+STOCK_PAGE_PASSWORD = _secret_or_env("STOCK_PAGE_PASSWORD")
 
 st.markdown(
     """
@@ -89,6 +103,38 @@ st.markdown(
         """,
         unsafe_allow_html=True,
 )
+
+if "stock_page_auth_ok" not in st.session_state:
+    st.session_state.stock_page_auth_ok = False
+
+if not st.session_state.stock_page_auth_ok:
+    st.subheader("Stock page login")
+
+    if not STOCK_PAGE_USERNAME or not STOCK_PAGE_PASSWORD:
+        st.error(
+            "Stock login is not configured. Add STOCK_PAGE_USERNAME and STOCK_PAGE_PASSWORD in Streamlit secrets or environment variables."
+        )
+        st.stop()
+
+    with st.form("stock_page_login_form", border=True):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        login_submitted = st.form_submit_button("Login", icon=":material/login:")
+
+    if login_submitted:
+        if username.strip().lower() == STOCK_PAGE_USERNAME and password == STOCK_PAGE_PASSWORD:
+            st.session_state.stock_page_auth_ok = True
+            st.success("Login successful.")
+            st.rerun()
+        else:
+            st.error("Invalid username or password.")
+
+    st.stop()
+
+with st.container(horizontal=True, horizontal_alignment="right"):
+    if st.button("Logout", icon=":material/logout:"):
+        st.session_state.stock_page_auth_ok = False
+        st.rerun()
 
 try:
     products_df = load_product_info()

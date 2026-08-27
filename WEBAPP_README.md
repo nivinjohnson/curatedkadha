@@ -61,9 +61,27 @@ If relay is unavailable, checkout shows an error and does not place the order.
 This repository includes a Netlify Function at `netlify/functions/send-order-email.js` and a redirect in `netlify.toml`.
 
 Result:
-- Mail is sent from `curatedkadha@gmail.com`
+- Mail is sent from the address configured in `ORDER_FROM_EMAIL` (or `ORDER_SMTP_USER` if not set)
 - Mail is sent to the customer email entered in checkout
 - Curated Kadha receives a BCC copy (optional)
+
+### Netlify secrets scanning note
+
+Netlify blocks deploys if an environment variable value appears in repository files or build output.
+
+To avoid failures:
+- Do not place real SMTP usernames, hosts, passwords, or tokens in docs or committed files.
+- Keep sample values generic in `.env.email.example`.
+- Keep secrets only in Netlify environment variables.
+
+This repo also includes a targeted false-positive exemption in `netlify.toml`:
+
+```toml
+[build.environment]
+SECRETS_SCAN_OMIT_PATHS = "node_modules/nodemailer/lib/well-known/services.json"
+```
+
+Use omit paths only for known dependency false positives. Do not disable scanning globally.
 
 ## Hosting on platforms
 

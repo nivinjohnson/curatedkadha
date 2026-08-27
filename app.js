@@ -1459,9 +1459,35 @@ async function placeOrder(rows, total) {
     return;
   }
 
-  clearCart();
-  state.orderSuccessMessage = "Order placed successfully. Details have been sent to your email address.";
-  renderCartModal();
+    clearCart();
+
+    const modalRoot = document.getElementById("cartModalRoot");
+
+    if (modalRoot) {
+    modalRoot.innerHTML = `
+        <div class="cart-modal-backdrop"></div>
+        <section class="cart-modal success-modal">
+        <div class="panel" style="text-align:center; padding:2rem;">
+            <div style="font-size:4rem; color:#28a745;">✓</div>
+            <h2>Order Placed Successfully!</h2>
+            <p>
+            Thank you for your order.
+            Details have been sent to your email address.
+            </p>
+            <p>
+            <strong>Order ID:</strong> ${orderId}
+            </p>
+            <button id="successCloseBtn">
+            Continue Shopping
+            </button>
+        </div>
+        </section>
+    `;
+
+    document.getElementById("successCloseBtn")?.addEventListener("click", () => {
+        closeCartModal();
+    });
+    }
 }
 
 async function sendOrderEmailSecure(orderPayload) {

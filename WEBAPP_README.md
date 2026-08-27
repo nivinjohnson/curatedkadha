@@ -14,7 +14,6 @@ This is a standalone browser-based web app.
   - add to cart
 - Cart/checkout page with:
   - quantity updates and cart total
-  - local order export to JSON
   - secure email send from server-side relay to customer email
   - NZ-assisted delivery address inputs (city suggestions + postcode assist)
 - Stock page with:

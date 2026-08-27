@@ -1404,8 +1404,6 @@ async function placeOrder(rows, total) {
     items: rows
   };
 
-  downloadJson(`${orderId}.json`, payload);
-
   const lines = rows.map((row) => `- ${row.title} | qty ${row.qty} | ${formatMoney(row.line_total)}`).join("%0D%0A");
   const body = [
     `Order ID: ${orderId}`,
@@ -1443,7 +1441,7 @@ async function placeOrder(rows, total) {
   updateCartCount();
   renderCartModal();
 
-  messageWrap.innerHTML = '<p class="notice">Order confirmation sent from Curated Kadha to your email. JSON download started.</p>';
+  messageWrap.innerHTML = '<p class="notice">Order confirmation sent from Curated Kadha to your email.</p>';
 }
 
 async function sendOrderEmailSecure(orderPayload) {

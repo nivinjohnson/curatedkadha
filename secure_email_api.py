@@ -222,3 +222,5 @@ def send_order_email():
 if __name__ == "__main__":
     port = int(env("ORDER_API_PORT", "8787"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
+# End of secure email API script

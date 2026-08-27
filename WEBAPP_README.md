@@ -60,17 +60,6 @@ If relay is unavailable, checkout shows an error and does not place the order.
 
 This repository includes a Netlify Function at `netlify/functions/send-order-email.js` and a redirect in `netlify.toml`.
 
-Set these environment variables in Netlify Site settings:
-
-```text
-ORDER_SMTP_HOST=smtp.gmail.com
-ORDER_SMTP_PORT=465
-ORDER_SMTP_USER=curatedkadha@gmail.com
-ORDER_SMTP_PASS=<gmail app password>
-ORDER_FROM_EMAIL=curatedkadha@gmail.com
-ORDER_BCC_EMAIL=curatedkadha@gmail.com
-```
-
 Result:
 - Mail is sent from `curatedkadha@gmail.com`
 - Mail is sent to the customer email entered in checkout

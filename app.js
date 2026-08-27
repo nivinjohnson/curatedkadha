@@ -1,5 +1,8 @@
 const SIZE_ORDER = ["FREE_SIZE", "XS", "S", "M", "L", "XL", "XXL", "3XL"];
 const CATALOG_URL = "product_info/product_catalog.xlsx";
+const CATALOG_API_URL = (window.CK_CONFIG && window.CK_CONFIG.catalogApiUrl)
+  ? String(window.CK_CONFIG.catalogApiUrl).trim()
+  : `${location.origin}/api/product-catalog`;
 const INSTAGRAM_SOURCE_URL = "data_from_insta/instagram_media_curatedkadha_20260822_043644.xlsx";
 const SECURE_ORDER_API_URL = (window.CK_CONFIG && window.CK_CONFIG.secureOrderApiUrl)
   ? String(window.CK_CONFIG.secureOrderApiUrl).trim()
@@ -83,12 +86,10 @@ const state = {
     username: ""
   },
   filters: {
-    query: "",
     sizeFilter: [],
     sortBy: "newest"
   },
   stockFilters: {
-    query: "",
     stockState: "all",
     activeState: "all",
     size: "all"
@@ -102,8 +103,56 @@ const state = {
 
 const app = document.getElementById("app");
 let shopLoadObserver = null;
+installWideScreenBannerStyles();
 
 start();
+
+function installWideScreenBannerStyles() {
+  if (document.getElementById("ckWideBannerStyles")) return;
+  const style = document.createElement("style");
+  style.id = "ckWideBannerStyles";
+  style.textContent = `
+    :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) {
+      width: min(100%, 1920px);
+      margin-inline: auto;
+      position: relative;
+      overflow: hidden;
+    }
+    :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > img,
+    :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > picture > img,
+    :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > video {
+      display: block;
+      width: 100%;
+      height: clamp(280px, 34vw, 680px);
+      object-fit: cover;
+      object-position: center 35%;
+    }
+    :is(.top-banner-content, .banner-content, .hero-content, .banner-overlay) {
+      width: min(90%, 780px);
+    }
+    :is(.top-banner-content, .banner-content, .hero-content, .banner-overlay) :is(h1, .banner-title, .hero-title) {
+      font-size: clamp(2rem, 4.4vw, 5.25rem);
+      line-height: 1.04;
+      text-wrap: balance;
+    }
+    @media (min-width: 1440px) {
+      :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > img,
+      :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > picture > img,
+      :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > video {
+        height: clamp(500px, 36vw, 680px);
+      }
+    }
+    @media (max-width: 700px) {
+      :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > img,
+      :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > picture > img,
+      :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > video {
+        height: clamp(230px, 72vw, 390px);
+        object-position: center;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 async function start() {
   renderLoading();
@@ -169,13 +218,14 @@ function ensureRoute() {
 function getRoute() {
   const raw = location.hash.replace(/^#\/?/, "");
   const [pathPart] = raw.split("?");
+  const lowerRaw = (raw || "shop").toLowerCase();
   const path = (pathPart || "shop").toLowerCase();
-  return { path };
+  return { path, raw, lowerRaw };
 }
 
 function renderRoute() {
   ensureSessionValidity();
-  const { path } = getRoute();
+  const { path, raw, lowerRaw } = getRoute();
   setActiveNav(path);
 
   if (path === "shop") {
@@ -185,6 +235,12 @@ function renderRoute() {
   if (path === "cart") {
     state.isCartModalOpen = true;
     location.hash = "#/shop";
+    return;
+  }
+  if (lowerRaw.startsWith("product/")) {
+    const rawProductId = raw.slice("product/".length);
+    const productId = decodeURIComponent(rawProductId);
+    renderProductDetails(productId);
     return;
   }
   if (path === "stock") {
@@ -224,7 +280,13 @@ function loadCatalogCache() {
     return [];
   }
 
-  return payload.products;
+  return payload.products.map((product) => {
+    const parsed = categorizeDescription(product.description || product.dress_description || "");
+    const parsedMentions = splitSizes(parsed.sizeMentions);
+    const parsedSold = splitSizes(parsed.soldSizes);
+    if (parsedMentions.length === 0) return product;
+    return { ...product, size_mentions: parsedMentions.join(";"), sold_sizes: parsedSold.join(";") };
+  });
 }
 
 function saveCatalogCache(products) {
@@ -397,9 +459,6 @@ function categorizeDescription(description) {
       }
     }
     tokenRegex.lastIndex = 0;
-    if (set.size === 0) {
-      set.add("FREE_SIZE");
-    }
     return Array.from(set);
   };
 
@@ -444,8 +503,30 @@ function categorizeDescription(description) {
   };
 }
 
-async function loadCatalog() {
-  const response = await fetch(CATALOG_URL);
+async function loadCatalog(options = {}) {
+  const forceReload = Boolean(options.forceReload);
+  
+  // Try loading from Supabase via API endpoint first
+  try {
+    const apiRequestUrl = forceReload
+      ? `${CATALOG_API_URL}${CATALOG_API_URL.includes("?") ? "&" : "?"}v=${Date.now()}`
+      : CATALOG_API_URL;
+    const apiRes = await fetch(apiRequestUrl, { cache: forceReload ? "no-store" : "default" });
+    if (apiRes.ok) {
+      const result = await apiRes.json();
+      if (result.ok && Array.isArray(result.products) && result.products.length > 0) {
+        return result.products;
+      }
+    }
+  } catch (err) {
+    console.warn("Catalog API fetch failed, falling back to local file:", err);
+  }
+
+  // Fallback to local Excel catalog file
+  const requestUrl = forceReload
+    ? `${CATALOG_URL}${CATALOG_URL.includes("?") ? "&" : "?"}v=${Date.now()}`
+    : CATALOG_URL;
+  const response = await fetch(requestUrl, { cache: forceReload ? "no-store" : "default" });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} while fetching ${CATALOG_URL}`);
   }
@@ -493,6 +574,58 @@ async function loadCatalog() {
       active: row.active === "" ? true : Boolean(row.active)
     };
   });
+}
+
+async function saveCatalogToServer(products) {
+  const response = await fetch(CATALOG_API_URL, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      target_file: CATALOG_URL,
+      products: products.map((item) => ({
+        ...item,
+        image_files: Array.isArray(item.image_files) ? item.image_files.join(";") : String(item.image_files || "")
+      }))
+    })
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Catalog update failed: ${response.status} ${errorText}`);
+  }
+  return response.json();
+}
+
+async function reloadCatalogFromFile(button, messageNode) {
+  const originalText = button ? button.textContent : "Reload catalog";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Reloading...";
+  }
+  if (messageNode) {
+    messageNode.innerHTML = '<p class="notice">Reloading the full app from product_info/product_catalog.xlsx...</p>';
+  }
+  try {
+    localStorage.removeItem(CATALOG_CACHE_KEY);
+    localStorage.removeItem(EDITS_KEY);
+    state.stockEdits = {};
+    state.products = await loadCatalog({ forceReload: true });
+    saveCatalogCache(state.products);
+    state.selectedStockGroupId = "";
+    state.visibleCount = 24;
+    updateCartCount();
+    renderRoute();
+  } catch (error) {
+    if (messageNode) {
+      messageNode.innerHTML = `<p class="notice error">Reload failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+    }
+  } finally {
+    if (button && document.body.contains(button)) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
 }
 
 function applyStockEdits() {
@@ -618,6 +751,33 @@ async function rebuildCatalogFromInstagram() {
   }
 
   const rebuilt = normalizeInstagramRowsToCatalog(rows);
+
+  // Send converted product catalog directly to Supabase via Netlify function
+  let syncedToSupabase = false;
+  try {
+    const syncRes = await fetch(CATALOG_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ products: rebuilt })
+    });
+    if (syncRes.ok) {
+      const syncResult = await syncRes.json();
+      if (syncResult.ok) {
+        syncedToSupabase = true;
+      }
+    }
+  } catch (err) {
+    console.warn("Could not sync converted catalog to Supabase directly:", err);
+  }
+
+  // Instantly update local app state with new converted products so reload is not needed
+  state.products = rebuilt.map((item) => ({
+    ...item,
+    image_files: parseImageFiles(item.image_files)
+  }));
+  saveCatalogCache(state.products);
+  updateCartCount();
+
   const outputHeaders = [
     "group_id",
     "title",
@@ -646,7 +806,8 @@ async function rebuildCatalogFromInstagram() {
 
     return {
       fileName,
-      count: rebuilt.length
+      count: rebuilt.length,
+      syncedToSupabase
     };
 }
 
@@ -732,9 +893,6 @@ function renderShop() {
   app.innerHTML = `
     <section class="shop-layout">
       <div class="shop-toolbar">
-        <div class="shop-search-wrap">
-          <input class="shop-search" id="fQuery" type="text" value="${escapeHtml(state.filters.query)}" placeholder="Search products..." />
-        </div>
 
         <select id="fSize" class="shop-filter-select">
           <option value="all" ${selectedSize === "all" ? "selected" : ""}>All sizes</option>
@@ -804,18 +962,6 @@ function bindShopFilterHandlers() {
     }
   };
 
-  const queryInput = document.getElementById("fQuery");
-  if (queryInput) {
-    queryInput.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") {
-        return;
-      }
-      event.preventDefault();
-      state.filters.query = queryInput.value;
-      state.visibleCount = 24;
-      renderShop();
-    });
-  }
   wire("#fSize", (event) => {
     const value = event.target.value;
     state.filters.sizeFilter = value === "all" ? [] : [value];
@@ -854,12 +1000,6 @@ function bindShopFilterHandlers() {
 function filterProducts() {
   let result = [...state.products];
   result = result.filter((item) => item.active);
-  result = result.filter((item) => !item.caption_has_sold);
-
-  const q = state.filters.query.trim().toLowerCase();
-  if (q) {
-    result = result.filter((item) => item.title.toLowerCase().includes(q) || item.description.toLowerCase().includes(q));
-  }
 
   if (state.filters.sizeFilter.length > 0) {
     const selected = new Set(state.filters.sizeFilter);
@@ -900,9 +1040,29 @@ function renderShopGrid() {
   }
 
   grid.innerHTML = visible.map((item) => renderProductCard(item)).join("");
-
   visible.forEach((item) => initCardCarousel(item.group_id, item.image_files));
-
+  grid.querySelectorAll(".card").forEach((card) => {
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("role", "link");
+    const openDetails = () => {
+      const groupId = card.getAttribute("data-id");
+      if (groupId) {
+        location.hash = `#/product/${encodeURIComponent(groupId)}`;
+      }
+    };
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("button, a, input, select, textarea")) {
+        return;
+      }
+      openDetails();
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openDetails();
+      }
+    });
+  });
   grid.querySelectorAll(".card-action").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -997,12 +1157,13 @@ function renderProductCard(item) {
   const firstImage = imageUrl(images[0]);
   const canEnlarge = Boolean(images[0]);
   const sizeText = splitSizes(item.size_mentions).slice(0, 1).map(formatSizeLabel).join(" ");
+  const isSold = Boolean(item.caption_has_sold);
   const dots = images.length > 1
     ? `<div class="card-dots">${images.map((_, idx) => `<span class="card-dot ${idx === 0 ? "active" : ""}" data-dot="${idx}"></span>`).join("")}</div>`
     : "";
 
   return `
-    <article class="card" data-id="${escapeHtml(item.group_id)}">
+    <article class="card ${isSold ? "card-sold-out" : ""}" data-id="${escapeHtml(item.group_id)}">
       <div class="card-media-wrap">
         <img class="card-media" data-main-image src="${firstImage}" alt="${escapeHtml(item.title)}" loading="lazy" decoding="async" />
         ${canEnlarge ? '<button class="card-enlarge-btn" type="button" aria-label="Enlarge image">⤢</button>' : ""}
@@ -1015,12 +1176,205 @@ function renderProductCard(item) {
           <div class="card-price">${formatMoney(item.price)}</div>
           <div class="card-meta">
             ${sizeText ? `<span class="card-tag">${escapeHtml(sizeText)}</span>` : ""}
+            ${isSold ? '<span class="card-tag sold-tag">Sold Out</span>' : ""}
           </div>
-          <button class="card-action" type="button">+ Add to Order</button>
+          <button class="card-action" type="button" ${isSold ? "disabled" : ""}>${isSold ? "Sold Out" : "+ Add to Order"}</button>
         </div>
       </div>
     </article>
   `;
+}
+
+function renderProductDetails(productId) {
+  const targetId = String(productId || "").trim();
+  const product = state.products.find((item) => String(item.group_id).trim() === targetId)
+    || state.products.find((item) => String(item.group_id).trim().toLowerCase() === targetId.toLowerCase());
+
+  if (!product) {
+    app.innerHTML = `
+      <section class="panel" style="max-width:760px; margin:1rem auto; text-align:center;">
+        <h1>Product not found</h1>
+        <p>The requested product is unavailable.</p>
+        <button id="productNotFoundBackBtn" type="button">Back to shop</button>
+      </section>`;
+    document.getElementById("productNotFoundBackBtn")?.addEventListener("click", () => {
+      location.hash = "#/shop";
+    });
+    return;
+  }
+
+  const imageFiles = Array.isArray(product.image_files)
+    ? product.image_files.filter(Boolean)
+    : parseImageFiles(product.image_files);
+  if (imageFiles.length === 0 && product.primary_image_file) {
+    imageFiles.push(product.primary_image_file);
+  }
+  const imageUrls = Array.from(new Set(imageFiles.map(imageUrl).filter(Boolean)));
+  const parsedProductText = categorizeDescription(product.description || product.dress_description || "");
+  const parsedMentions = splitSizes(parsedProductText.sizeMentions);
+  const parsedSold = splitSizes(parsedProductText.soldSizes);
+  const effectiveMentions = parsedMentions.length ? parsedMentions : splitSizes(product.size_mentions);
+  const effectiveSold = parsedSold.length ? parsedSold : splitSizes(product.sold_sizes);
+  const mentionedSizes = new Set(effectiveMentions);
+  const soldSizes = new Set(effectiveSold);
+  const sizes = SIZE_ORDER.filter((size) => mentionedSizes.has(size));
+  const availableSizeCount = sizes.filter((size) => !soldSizes.has(size)).length;
+  const fullySoldOut =
+  Boolean(product.caption_has_sold) ||
+  (sizes.length > 0 && availableSizeCount === 0);
+  const description = String(product.dress_description || product.description || "").trim();
+  const cleanTitle = String(product.title || "Untitled product")
+    .replace(/^\s*sold\s*out\s*[❌✖✕x-]*\s*/i, "")
+    .replace(/^\s*sold\s*[❌✖✕x-]*\s*/i, "")
+    .trim() || "Product";
+
+  const sizeMarkup = sizes.length
+    ? sizes.map((size) => {
+        const sold = soldSizes.has(size);
+        return `<span class="detail-size ${sold ? "detail-size-sold" : ""}" ${sold ? 'aria-disabled="true" title="Sold out"' : ""}>
+          <span>${escapeHtml(formatSizeLabel(size))}</span>
+          ${sold ? '<small>Sold</small>' : ""}
+        </span>`;
+      }).join("")
+    : '<span class="detail-size-empty">Size not specified</span>';
+
+  const carouselMarkup = imageUrls.length
+    ? `<div class="detail-carousel" id="detailCarousel">
+        <img id="detailMainImage" class="detail-carousel-image" src="${escapeHtml(imageUrls[0])}" alt="${escapeHtml(cleanTitle)}" />
+        <button id="detailEnlargeBtn" class="detail-enlarge" type="button" aria-label="Enlarge product image" title="Enlarge image"><span aria-hidden="true">⤢</span></button>
+        ${imageUrls.length > 1 ? `
+          <button id="detailPrevBtn" class="detail-arrow detail-arrow-prev" type="button" aria-label="Previous image"><span aria-hidden="true">˂</span></button>
+          <button id="detailNextBtn" class="detail-arrow detail-arrow-next" type="button" aria-label="Next image"><span aria-hidden="true">˃</span></button>
+          <span id="detailCounter" class="detail-counter">1 / ${imageUrls.length}</span>
+          <div class="detail-dots" aria-label="Choose product image">
+            ${imageUrls.map((_, index) => `<button type="button" class="detail-dot ${index === 0 ? "active" : ""}" data-detail-dot="${index}" aria-label="Show image ${index + 1}"></button>`).join("")}
+          </div>` : ""}
+      </div>
+      ${imageUrls.length > 1 ? `<div class="detail-thumbnails">
+        ${imageUrls.map((url, index) => `<button type="button" class="detail-thumb ${index === 0 ? "active" : ""}" data-detail-thumb="${index}" aria-label="Show image ${index + 1}"><img src="${escapeHtml(url)}" alt="" /></button>`).join("")}
+      </div>` : ""}`
+    : '<div class="detail-no-image">No product image</div>';
+
+  app.innerHTML = `
+    <style>
+      .product-detail-page{max-width:1220px;margin:1rem auto;padding:0 1rem 2rem}
+      .product-detail-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:clamp(1.5rem,4vw,3.25rem);align-items:start}
+      .detail-carousel{position:relative;display:grid;place-items:center;min-height:420px;overflow:hidden;border-radius:16px;background:#f5f3f1;touch-action:pan-y}
+      .detail-carousel-image{display:block;width:100%;height:min(68vh,700px);object-fit:contain;cursor:zoom-in;user-select:none}
+      .detail-arrow,.detail-enlarge{position:absolute;z-index:3;display:grid;place-items:center;border:0;border-radius:999px;background:rgba(255,255,255,.94);color:#231a16;box-shadow:0 6px 20px rgba(0,0,0,.2);cursor:pointer}
+      .detail-arrow{top:50%;width:48px;height:48px;transform:translateY(-50%);font-size:2.3rem;line-height:1}
+      .detail-arrow:hover{transform:translateY(-50%) scale(1.06)}
+      .detail-arrow-prev{left:14px}.detail-arrow-next{right:14px}
+      .detail-enlarge{top:14px;right:14px;width:44px;height:44px;font-size:1.35rem}
+      .detail-enlarge:hover{transform:scale(1.06)}
+      .detail-counter{position:absolute;right:14px;bottom:14px;padding:.42rem .72rem;border-radius:999px;background:rgba(25,19,16,.76);color:#fff;font-size:.82rem;font-weight:700}
+      .detail-dots{position:absolute;bottom:18px;left:50%;display:flex;gap:7px;transform:translateX(-50%)}
+      .detail-dot{width:10px;height:10px;min-width:10px;padding:0;border:1px solid #fff;border-radius:50%;background:rgba(40,30,25,.42);cursor:pointer}.detail-dot.active{background:#fff;transform:scale(1.25)}
+      .detail-thumbnails{display:flex;gap:10px;margin-top:12px;padding-bottom:4px;overflow-x:auto}
+      .detail-thumb{flex:0 0 auto;padding:2px;border:2px solid transparent;border-radius:10px;background:transparent;cursor:pointer}.detail-thumb.active{border-color:var(--brand,#7b916f)}
+      .detail-thumb img{display:block;width:72px;height:72px;border-radius:7px;object-fit:cover}
+      .detail-sizes{display:flex;flex-wrap:wrap;gap:9px;margin-top:9px}.detail-size{display:inline-flex;align-items:center;gap:6px;min-width:48px;justify-content:center;padding:.58rem .8rem;border:1px solid #cfc8c3;border-radius:9px;background:#fff;font-weight:700}
+      .detail-size-sold{border-color:#d7d7d7;background:#e7e7e7;color:#8a8a8a;opacity:.78;text-decoration:line-through;cursor:not-allowed}.detail-size-sold small{font-size:.62rem;text-transform:uppercase;text-decoration:none}.detail-size-empty{color:#777}
+      .detail-no-image{min-height:380px;display:grid;place-items:center;border-radius:16px;background:#f1f1f1}
+      @media(max-width:820px){
+        .product-detail-page{margin:.45rem auto;padding:0 .65rem 1.25rem}
+        .product-detail-page>.secondary{margin-left:.1rem}
+        .product-detail-page .panel{padding:1rem}
+        .product-detail-grid{grid-template-columns:minmax(0,1fr);gap:1.2rem}
+        .detail-carousel{width:100%;min-height:0;aspect-ratio:4/5;border-radius:13px}
+        .detail-carousel-image{width:100%;height:100%;max-height:none;object-fit:contain}
+        .detail-thumbnails{gap:7px;margin-top:8px}
+        .detail-thumb img{width:58px;height:58px}
+      }
+      @media(max-width:520px){
+        .product-detail-page{padding-inline:.45rem}
+        .product-detail-page .panel{padding:.72rem;border-radius:12px}
+        .product-detail-grid{gap:1rem}
+        .detail-carousel{aspect-ratio:3/4;border-radius:11px}
+        .detail-arrow{width:30px;height:30px;font-size:1rem;box-shadow:0 3px 10px rgba(0,0,0,.18)}
+        .detail-arrow-prev{left:6px}.detail-arrow-next{right:6px}
+        .detail-enlarge{top:7px;right:7px;width:30px;height:30px;font-size:.8rem;box-shadow:0 3px 10px rgba(0,0,0,.18)}
+        .detail-counter{right:7px;bottom:8px;padding:.27rem .48rem;font-size:.68rem}
+        .detail-dots{bottom:11px;gap:5px}
+        .detail-dot{width:7px;height:7px;min-width:7px}
+        .detail-thumbnails{gap:6px;scrollbar-width:thin}
+        .detail-thumb{padding:1px;border-radius:8px}
+        .detail-thumb img{width:49px;height:49px;border-radius:6px}
+        .detail-sizes{gap:6px}
+        .detail-size{min-width:40px;padding:.43rem .58rem;font-size:.82rem}
+        .detail-size-sold small{font-size:.52rem}
+        .product-detail-grid h1{font-size:clamp(1.45rem,7vw,1.85rem);line-height:1.15;margin-bottom:.45rem}
+        .product-detail-grid p{font-size:.92rem;line-height:1.5}
+        #addDetailToCartBtn{max-width:none!important;min-height:44px}
+      }
+      @media(max-width:360px){
+        .product-detail-page{padding-inline:.25rem}
+        .product-detail-page .panel{padding:.55rem}
+        .detail-carousel{aspect-ratio:1/1.28}
+        .detail-arrow{width:27px;height:27px;font-size:.88rem}
+        .detail-enlarge{width:27px;height:27px;font-size:.72rem}
+        .detail-counter{display:none}
+        .detail-thumb img{width:44px;height:44px}
+      }
+    </style>
+    <section class="product-detail-page">
+      <button class="secondary" id="backToShopBtn" type="button" style="margin-bottom:1rem">← Back to shop</button>
+      <article class="panel">
+        <div class="product-detail-grid">
+          <div>${carouselMarkup}</div>
+          <div>
+            <div style="font-size:1.6rem;font-weight:700;margin:.75rem 0">${formatMoney(product.price)}</div>
+            ${description ? `<p style="white-space:pre-line;line-height:1.65">${escapeHtml(description)}</p>` : ""}
+            <div style="margin:1.25rem 0"><strong>Sizes</strong><div class="detail-sizes">${sizeMarkup}</div></div>
+            ${product.item_count ? `<p><strong>Items:</strong> ${Number(product.item_count)}</p>` : ""}
+            ${fullySoldOut ? '<button type="button" disabled style="width:100%;max-width:360px">Sold Out</button>' : '<button id="addDetailToCartBtn" type="button" style="width:100%;max-width:360px">+ Add to Order</button>'}
+            <div id="productDetailMessage" style="margin-top:1rem"></div>
+          </div>
+        </div>
+      </article>
+      <div id="cartModalRoot"></div><div id="imageViewerRoot"></div>
+    </section>`;
+
+  document.getElementById("backToShopBtn")?.addEventListener("click", () => { location.hash = "#/shop"; });
+
+  let currentIndex = 0;
+  let touchStartX = null;
+  const paint = () => {
+    const image = document.getElementById("detailMainImage");
+    const counter = document.getElementById("detailCounter");
+    if (image) image.src = imageUrls[currentIndex];
+    if (counter) counter.textContent = `${currentIndex + 1} / ${imageUrls.length}`;
+    document.querySelectorAll("[data-detail-dot]").forEach((node, index) => node.classList.toggle("active", index === currentIndex));
+    document.querySelectorAll("[data-detail-thumb]").forEach((node, index) => node.classList.toggle("active", index === currentIndex));
+  };
+  const previous = () => { if (imageUrls.length > 1) { currentIndex = (currentIndex - 1 + imageUrls.length) % imageUrls.length; paint(); } };
+  const next = () => { if (imageUrls.length > 1) { currentIndex = (currentIndex + 1) % imageUrls.length; paint(); } };
+
+  document.getElementById("detailPrevBtn")?.addEventListener("click", previous);
+  document.getElementById("detailNextBtn")?.addEventListener("click", next);
+  document.querySelectorAll("[data-detail-dot],[data-detail-thumb]").forEach((node) => {
+    node.addEventListener("click", () => { currentIndex = Number(node.dataset.detailDot ?? node.dataset.detailThumb); paint(); });
+  });
+  const carousel = document.getElementById("detailCarousel");
+  carousel?.addEventListener("touchstart", (event) => { touchStartX = event.changedTouches[0].clientX; }, { passive:true });
+  carousel?.addEventListener("touchend", (event) => {
+    if (touchStartX === null) return;
+    const dx = event.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 35) dx < 0 ? next() : previous();
+    touchStartX = null;
+  }, { passive:true });
+
+  const enlarge = () => { if (imageUrls.length) openImageViewer(imageUrls, currentIndex, cleanTitle); };
+  document.getElementById("detailEnlargeBtn")?.addEventListener("click", (event) => { event.stopPropagation(); enlarge(); });
+  document.getElementById("detailMainImage")?.addEventListener("click", enlarge);
+
+  document.getElementById("addDetailToCartBtn")?.addEventListener("click", () => {
+    setCartQty(product.group_id, Number(state.cart[product.group_id] || 0) + 1);
+    const message = document.getElementById("productDetailMessage");
+    if (message) message.innerHTML = '<p class="notice">Product added to your order.</p>';
+    openCartModal();
+  });
+  updateCartCount();
 }
 
 function initCardCarousel(groupId, images) {
@@ -1513,7 +1867,6 @@ function renderStock() {
     app.innerHTML = `
       <section class="panel" style="max-width: 520px; margin: 1rem auto;">
         <h1>Stock login</h1>
-        <p class="notice warning">Browser-only apps cannot securely hide credentials. Set a local username/password below for this session. Session expires after 30 minutes of inactivity.</p>
         <div class="field"><label for="stockUser">Username</label><input id="stockUser" type="text" /></div>
         <div class="field"><label for="stockPass">Password</label><input id="stockPass" type="password" /></div>
         <button id="stockLoginBtn">Login</button>
@@ -1559,7 +1912,6 @@ function renderStock() {
 
       <article class="panel">
         <h2>Filters</h2>
-        <div class="field"><label for="sfQuery">Search description</label><input id="sfQuery" type="text" value="${escapeHtml(state.stockFilters.query)}" /></div>
         <div class="field"><label for="sfStock">Stock state</label>
           <select id="sfStock">
             <option value="all" ${state.stockFilters.stockState === "all" ? "selected" : ""}>All</option>
@@ -1582,6 +1934,11 @@ function renderStock() {
         </div>
       </article>
 
+      <article class="panel">
+        <h2>Products</h2>
+        <p>Select a product to open it in the product editor.</p>
+        <div id="stockProductTable"></div>
+      </article>
       <article class="panel" id="stockEditorPanel"></article>
     </section>
   `;
@@ -1596,14 +1953,18 @@ function renderStock() {
       const messageNode = document.getElementById("stockConvertMessage");
       stockConvertBtn.disabled = true;
       if (messageNode) {
-        messageNode.innerHTML = '<p class="notice">Converting Instagram data to product catalog...</p>';
+        messageNode.innerHTML = '<p class="notice">Converting Instagram data & updating Supabase database...</p>';
       }
 
       try {
         const result = await rebuildCatalogFromInstagram();
         if (messageNode) {
-          messageNode.innerHTML = `<p class="notice">New catalog exported as ${escapeHtml(result.fileName)} with ${result.count} products. Existing app catalog was not changed.</p>`;
+          const syncInfo = result.syncedToSupabase
+            ? " All products synced to Supabase DB!"
+            : "";
+          messageNode.innerHTML = `<p class="notice">Catalog updated successfully (${result.count} products).${syncInfo}</p>`;
         }
+        renderRoute();
       } catch (error) {
         if (messageNode) {
           messageNode.innerHTML = `<p class="notice error">Conversion failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
@@ -1619,7 +1980,6 @@ function renderStock() {
     renderStock();
   });
 
-  wireStockFilter("#sfQuery", "query");
   wireStockFilter("#sfStock", "stockState");
   wireStockFilter("#sfActive", "activeState");
   wireStockFilter("#sfSize", "size");
@@ -1627,7 +1987,90 @@ function renderStock() {
   if (!state.selectedStockGroupId && filtered.length > 0) {
     state.selectedStockGroupId = filtered[0].group_id;
   }
+  renderStockTable(filtered);
   renderStockEditor(filtered);
+}
+
+function renderStockTable(filteredRows) {
+  const tableWrap = document.getElementById("stockProductTable");
+  if (!tableWrap) {
+    return;
+  }
+  if (filteredRows.length === 0) {
+    tableWrap.innerHTML = '<p class="notice warning">No products match current filters.</p>';
+    return;
+  }
+  tableWrap.innerHTML = `
+    <div style="overflow-x:auto; max-height:520px; overflow-y:auto; border:1px solid #e2e2e2; border-radius:10px;">
+      <table style="width:100%; border-collapse:collapse; min-width:760px;">
+        <thead style="position:sticky; top:0; z-index:1; background:#f7f7f7;">
+          <tr>
+            <th style="padding:10px; text-align:center; border-bottom:1px solid #ddd; width:70px;">Select</th>
+            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd; width:90px;">Photo</th>
+            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd;">Product</th>
+            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd;">Price</th>
+            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd;">Sizes</th>
+            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filteredRows.map((item) => {
+            const previewFile = item.primary_image_file || item.image_files[0] || "";
+            const previewUrl = imageUrl(previewFile);
+            const isSelected = item.group_id === state.selectedStockGroupId;
+            const sizes = splitSizes(item.size_mentions).map(formatSizeLabel).join(", ") || "Not set";
+            const status = item.active ? "Active" : "Inactive";
+            const thumbnail = previewUrl
+              ? `<img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(item.title)}" style="width:64px; height:64px; object-fit:cover; border-radius:8px; display:block;" loading="lazy" />`
+              : '<div style="width:64px; height:64px; border-radius:8px; background:#eee; display:grid; place-items:center; font-size:11px; text-align:center;">No image</div>';
+            return `
+              <tr data-stock-row="${escapeHtml(item.group_id)}" style="cursor:pointer; background:${isSelected ? "#eef6ff" : "transparent"};">
+                <td style="padding:10px; text-align:center; border-bottom:1px solid #eee;">
+                  <input type="radio" name="stockProductRadio" value="${escapeHtml(item.group_id)}" ${isSelected ? "checked" : ""} aria-label="Select ${escapeHtml(item.title)}" />
+                </td>
+                <td style="padding:10px; border-bottom:1px solid #eee;">${thumbnail}</td>
+                <td style="padding:10px; border-bottom:1px solid #eee;">
+                  <strong>${escapeHtml(item.title)}</strong>
+                  <div style="font-size:12px; opacity:0.7; margin-top:3px;">${escapeHtml(item.group_id)}</div>
+                </td>
+                <td style="padding:10px; border-bottom:1px solid #eee;">${formatMoney(item.price)}</td>
+                <td style="padding:10px; border-bottom:1px solid #eee;">${escapeHtml(sizes)}</td>
+                <td style="padding:10px; border-bottom:1px solid #eee;">${status}</td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+  const selectProduct = (groupId) => {
+    if (!groupId || groupId === state.selectedStockGroupId) {
+      return;
+    }
+    state.selectedStockGroupId = groupId;
+    renderStockTable(filteredRows);
+    renderStockEditor(filteredRows);
+    const editorPanel = document.getElementById("stockEditorPanel");
+    if (editorPanel) {
+      editorPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+  tableWrap.querySelectorAll('input[name="stockProductRadio"]').forEach((radio) => {
+    radio.addEventListener("change", () => selectProduct(radio.value));
+  });
+  tableWrap.querySelectorAll("tr[data-stock-row]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (event.target instanceof HTMLInputElement && event.target.type === "radio") {
+        return;
+      }
+      const groupId = row.getAttribute("data-stock-row");
+      const radio = row.querySelector('input[type="radio"]');
+      if (radio) {
+        radio.checked = true;
+      }
+      selectProduct(groupId);
+    });
+  });
 }
 
 function wireStockFilter(selector, field) {
@@ -1662,12 +2105,7 @@ function buildStockOverview() {
 
 function filterStockRows() {
   let rows = [...state.products];
-  const q = state.stockFilters.query.trim().toLowerCase();
   const size = String(state.stockFilters.size || "all").toUpperCase();
-
-  if (q) {
-    rows = rows.filter((item) => item.description.toLowerCase().includes(q));
-  }
 
   if (state.stockFilters.stockState === "available") {
     rows = rows.filter((item) => item.active && (availableSizes(item).length > 0 || !item.caption_has_sold));
@@ -1704,12 +2142,6 @@ function renderStockEditor(filteredRows) {
 
   state.selectedStockGroupId = current.group_id;
 
-  const productOptions = filteredRows.map((item) => {
-    const safeId = escapeHtml(item.group_id);
-    const preview = escapeHtml(String(item.title || "").slice(0, 50));
-    const selected = item.group_id === current.group_id ? "selected" : "";
-    return `<option value="${safeId}" ${selected}>${safeId}${preview ? ` - ${preview}` : ""}</option>`;
-  }).join("");
 
   const mentions = new Set(splitSizes(current.size_mentions));
   const sold = new Set(splitSizes(current.sold_sizes));
@@ -1725,9 +2157,9 @@ function renderStockEditor(filteredRows) {
   panel.innerHTML = `
     <h2>Product editor</h2>
     <p>Filtered products: <b>${filteredRows.length}</b></p>
-    <div class="field">
-      <label for="stockProductSelect">Select product</label>
-      <select id="stockProductSelect">${productOptions}</select>
+    <div class="notice" style="margin-bottom:1rem;">
+      Editing: <strong>${escapeHtml(current.title)}</strong>
+      <span style="opacity:0.7;">(${escapeHtml(current.group_id)})</span>
     </div>
     <div class="stock-editor-split">
       <aside class="stock-editor-media">
@@ -1758,7 +2190,7 @@ function renderStockEditor(filteredRows) {
         <div class="field"><label for="seItemCount">Item count</label><input id="seItemCount" type="number" min="0" max="999" value="${current.item_count}" /></div>
         <div class="field"><label for="sePrice">Price</label><input id="sePrice" type="number" min="0" step="0.5" value="${current.price}" /></div>
         <label class="inline-check"><input id="seActive" type="checkbox" ${current.active ? "checked" : ""} /> Active</label>
-        <label class="inline-check"><input id="seCaptionSold" type="checkbox" ${current.caption_has_sold ? "checked" : ""} /> Caption has sold</label>
+        <label class="inline-check"><input id="seCaptionSold" type="checkbox" ${current.caption_has_sold ? "checked" : ""} /> Mark as Sold Out</label>
 
         <div class="field"><label for="sePrimary">Primary image file</label><input id="sePrimary" type="text" value="${escapeHtml(current.primary_image_file)}" /></div>
         <div class="field"><label for="seImages">Image files (semicolon separated)</label><textarea id="seImages" rows="3">${escapeHtml(current.image_files.join(";"))}</textarea></div>
@@ -1776,15 +2208,8 @@ function renderStockEditor(filteredRows) {
     </div>
   `;
 
-  const stockProductSelect = document.getElementById("stockProductSelect");
-  if (stockProductSelect) {
-    stockProductSelect.addEventListener("change", (event) => {
-      state.selectedStockGroupId = event.target.value;
-      renderStockEditor(filteredRows);
-    });
-  }
 
-  document.getElementById("saveStockBtn").addEventListener("click", () => {
+  document.getElementById("saveStockBtn").addEventListener("click", async () => {
     const description = document.getElementById("seDescription").value;
     const availableSizesSelected = Array.from(document.querySelectorAll("input[data-se-available]:checked")).map((node) => node.getAttribute("data-se-available"));
     const soldSizesSelected = Array.from(document.querySelectorAll("input[data-se-sold]:checked")).map((node) => node.getAttribute("data-se-sold"));
@@ -1804,13 +2229,30 @@ function renderStockEditor(filteredRows) {
       image_files: document.getElementById("seImages").value.split(";").map((part) => part.trim()).filter(Boolean)
     };
 
-    state.stockEdits[current.group_id] = patch;
-    saveJson(EDITS_KEY, state.stockEdits);
-
-    state.products = state.products.map((item) => item.group_id === current.group_id ? { ...item, ...patch } : item);
-
-    document.getElementById("stockSaveMessage").innerHTML = '<p class="notice">Updated locally. Changes are stored in browser localStorage and survive refresh on this device.</p>';
-    renderStock();
+    const saveButton = document.getElementById("saveStockBtn");
+    const messageNode = document.getElementById("stockSaveMessage");
+    const previousProducts = state.products;
+    const updatedProducts = state.products.map((item) => item.group_id === current.group_id ? { ...item, ...patch } : item);
+    saveButton.disabled = true;
+    saveButton.textContent = "Updating Excel...";
+    messageNode.innerHTML = '<p class="notice">Updating product_info/product_catalog.xlsx...</p>';
+    try {
+      await saveCatalogToServer(updatedProducts);
+      state.products = updatedProducts;
+      state.stockEdits = {};
+      localStorage.removeItem(EDITS_KEY);
+      saveCatalogCache(state.products);
+      renderStock();
+      const refreshedMessage = document.getElementById("stockSaveMessage");
+      if (refreshedMessage) {
+        refreshedMessage.innerHTML = '<p class="notice">Product updated successfully in product_info/product_catalog.xlsx.</p>';
+      }
+    } catch (error) {
+      state.products = previousProducts;
+      saveButton.disabled = false;
+      saveButton.textContent = "Update product";
+      messageNode.innerHTML = `<p class="notice error">Could not update the Excel file: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+    }
   });
 }
 

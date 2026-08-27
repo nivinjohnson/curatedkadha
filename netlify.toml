@@ -5,6 +5,11 @@
   SECRETS_SCAN_OMIT_PATHS = "node_modules/nodemailer/lib/well-known/services.json"
 
 [[redirects]]
+  from = "/api/product-catalog"
+  to = "/.netlify/functions/product-catalog"
+  status = 200
+
+[[redirects]]
   from = "/api/send-order-email"
   to = "/.netlify/functions/send-order-email"
   status = 200

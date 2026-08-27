@@ -42,7 +42,7 @@ body {
 .banner-img-wrap {
   position: relative;
   width: 100%;
-  max-height: 240px;
+  height: 240px;
   overflow: hidden;
 }
 
@@ -191,6 +191,24 @@ p {
 
 .shop-filter-select {
   width: 100%;
+}
+
+.shop-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--fg);
+  user-select: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.shop-check-label input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #728a66;
+  cursor: pointer;
 }
 
 .shop-search {
@@ -575,6 +593,38 @@ button.danger {
   padding: 0.11rem 0.44rem;
   color: #8a816d;
   font-size: 0.7rem;
+}
+
+.card-tag.sold-tag {
+  background: #fbeae8;
+  border-color: #f7d2cd;
+  color: #b94a48;
+}
+
+.card-sold-badge {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  background: rgba(185, 74, 72, 0.9);
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  z-index: 2;
+}
+
+.card-sold-out .card-media {
+  opacity: 0.7;
+}
+
+.card-action:disabled {
+  background: #f2f2f2;
+  color: #a0a0a0;
+  border-color: #dcdcdc;
+  cursor: not-allowed;
 }
 
 .card-action {

@@ -86,7 +86,12 @@ def send_order_email():
     smtp_user = require_env("ORDER_SMTP_USER")
     smtp_pass = require_env("ORDER_SMTP_PASS")
     from_email = env("ORDER_FROM_EMAIL", smtp_user)
-    to_email = require_env("ORDER_TO_EMAIL")
+    to_email = str(payload.get("customer_email", "")).strip()
+    bcc_email = env("ORDER_BCC_EMAIL", "")
+    if "@" not in to_email:
+        response = jsonify({"ok": False, "error": "customer_email must be a valid email address"})
+        response.status_code = 400
+        return add_cors_headers(response)
 
     order_id = str(payload.get("order_id", "order"))
     subject = f"Order confirmation: {order_id}"
@@ -96,6 +101,8 @@ def send_order_email():
     message["Subject"] = subject
     message["From"] = from_email
     message["To"] = to_email
+    if bcc_email:
+        message["Bcc"] = bcc_email
     message.set_content(body)
 
     try:

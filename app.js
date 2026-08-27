@@ -10,6 +10,65 @@ const EDITS_KEY = "ck_stock_edits";
 const ABOUT_PHOTO_SRC = "static/Chelsi.jpeg";
 const SESSION_KEY = "ck_session";
 const SESSION_TTL_MS = 30 * 60 * 1000;
+const NZ_CITY_POSTCODE = {
+  Auckland: "1010",
+  Wellington: "6011",
+  Christchurch: "8011",
+  Hamilton: "3204",
+  Tauranga: "3110",
+  Dunedin: "9016",
+  Palmerston_North: "4410",
+  Napier: "4110",
+  Nelson: "7010",
+  Rotorua: "3010",
+  New_Plymouth: "4310",
+  Whangarei: "0110",
+  Invercargill: "9810"
+};
+const NZ_SUBURB_POSTCODE = {
+  ponsonby: "1011",
+  parnell: "1052",
+  remuera: "1050",
+  mt_eden: "1024",
+  epsom: "1023",
+  sandringham: "1025",
+  newmarket: "1023",
+  papatoetoe: "2025",
+  takapuna: "0622",
+  hamilton_central: "3204",
+  chartwell: "3210",
+  te_rapa: "3200",
+  wellington_central: "6011",
+  te_aro: "6011",
+  kilbirnie: "6022",
+  miramar: "6022",
+  christchurch_central: "8011",
+  riccarton: "8041",
+  sydenham: "8023",
+  ilam: "8041",
+  mount_maunganui: "3116",
+  papamoa: "3118",
+  tauranga_south: "3112",
+  dunedin_central: "9016",
+  st_kilda: "9012",
+  saint_kilda: "9012",
+  mosgiel: "9024",
+  napier_south: "4110",
+  hastings_central: "4122",
+  nelson_south: "7010",
+  rotorua_central: "3010",
+  whangarei_central: "0110",
+  invercargill_central: "9810"
+};
+
+function normalizeNzPlace(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("&", "and")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
 
 const state = {
   products: [],
@@ -1179,7 +1238,12 @@ function renderCartModal() {
         <div class="field"><label for="customerName">Full name</label><input id="customerName" type="text" /></div>
         <div class="field"><label for="customerPhone">Phone number</label><input id="customerPhone" type="text" /></div>
         <div class="field"><label for="customerEmail">Email</label><input id="customerEmail" type="email" /></div>
-        <div class="field"><label for="customerAddress">Delivery address</label><textarea id="customerAddress" rows="3"></textarea></div>
+        <div class="field"><label for="nzAddressLine1">Delivery address line</label><input id="nzAddressLine1" type="text" placeholder="Street number and street" /></div>
+        <div class="field"><label for="nzSuburb">Suburb</label><input id="nzSuburb" type="text" placeholder="Suburb" /></div>
+        <div class="field"><label for="nzCity">City</label><input id="nzCity" type="text" list="nzCityList" placeholder="Select or type city" /></div>
+        <datalist id="nzCityList">${Object.keys(NZ_CITY_POSTCODE).map((city) => `<option value="${city.replaceAll("_", " ")}"></option>`).join("")}</datalist>
+        <div class="field"><label for="nzPostcode">Postcode</label><input id="nzPostcode" type="text" maxlength="4" inputmode="numeric" placeholder="4-digit NZ postcode" /></div>
+        <div class="field"><label for="nzCountry">Country</label><input id="nzCountry" type="text" value="New Zealand" readonly /></div>
         <div class="checkout-actions">
           <button id="placeOrderBtn">Place order</button>
           <button class="secondary" id="backToCartBtn" type="button">Back to cart</button>
@@ -1260,6 +1324,41 @@ function renderCartModal() {
     checkoutPanelCloseBtn.addEventListener("click", closeCartModal);
   }
 
+  const nzSuburbInput = document.getElementById("nzSuburb");
+  const nzCityInput = document.getElementById("nzCity");
+  const nzPostcodeInput = document.getElementById("nzPostcode");
+  if (nzPostcodeInput) {
+    const autofillNzPostcode = () => {
+      if (nzPostcodeInput.value.trim()) {
+        return;
+      }
+
+      const suburbKey = normalizeNzPlace(nzSuburbInput ? nzSuburbInput.value : "");
+      if (suburbKey && NZ_SUBURB_POSTCODE[suburbKey]) {
+        nzPostcodeInput.value = NZ_SUBURB_POSTCODE[suburbKey];
+        return;
+      }
+
+      const cityInputKey = normalizeNzPlace(nzCityInput ? nzCityInput.value : "");
+      if (!cityInputKey) {
+        return;
+      }
+      const matchedCityKey = Object.keys(NZ_CITY_POSTCODE).find((cityKey) => normalizeNzPlace(cityKey) === cityInputKey);
+      if (matchedCityKey) {
+        nzPostcodeInput.value = NZ_CITY_POSTCODE[matchedCityKey];
+      }
+    };
+
+    if (nzSuburbInput) {
+      nzSuburbInput.addEventListener("change", autofillNzPostcode);
+      nzSuburbInput.addEventListener("blur", autofillNzPostcode);
+    }
+    if (nzCityInput) {
+      nzCityInput.addEventListener("change", autofillNzPostcode);
+      nzCityInput.addEventListener("blur", autofillNzPostcode);
+    }
+  }
+
   document.getElementById("placeOrderBtn").addEventListener("click", () => placeOrder(rows, total));
   const backToCartBtn = document.getElementById("backToCartBtn");
   if (backToCartBtn) {
@@ -1276,11 +1375,16 @@ async function placeOrder(rows, total) {
   const name = document.getElementById("customerName").value.trim();
   const phone = document.getElementById("customerPhone").value.trim();
   const email = document.getElementById("customerEmail").value.trim();
-  const address = document.getElementById("customerAddress").value.trim();
+  const addressLine1 = document.getElementById("nzAddressLine1").value.trim();
+  const suburb = document.getElementById("nzSuburb").value.trim();
+  const city = document.getElementById("nzCity").value.trim();
+  const postcode = document.getElementById("nzPostcode").value.trim();
+  const country = document.getElementById("nzCountry").value.trim() || "New Zealand";
+  const address = [addressLine1, suburb, city, postcode, country].filter(Boolean).join(", ");
   const messageWrap = document.getElementById("orderMessage");
 
-  if (!name || !phone || !email || !address) {
-    messageWrap.innerHTML = '<p class="notice error">Please complete name, phone number, email, and address before placing the order.</p>';
+  if (!name || !phone || !email || !addressLine1 || !city || !postcode) {
+    messageWrap.innerHTML = '<p class="notice error">Please complete name, phone, email, and NZ delivery address fields (line, city, postcode).</p>';
     return;
   }
   if (rows.length === 0) {
@@ -1317,7 +1421,6 @@ async function placeOrder(rows, total) {
   ].join("%0D%0A");
 
   const plainBody = decodeURIComponent(body);
-  let usedFallbackMailDraft = false;
   try {
     await sendOrderEmailSecure({
       order_id: orderId,
@@ -1331,10 +1434,8 @@ async function placeOrder(rows, total) {
       body: plainBody
     });
   } catch {
-    const subject = encodeURIComponent(`Order confirmation: ${orderId}`);
-    const mailto = `mailto:curatedkadha@gmail.com?subject=${subject}&body=${body}`;
-    window.open(mailto, "_blank");
-    usedFallbackMailDraft = true;
+    messageWrap.innerHTML = '<p class="notice error">Could not send order email from server. Please try again in a moment.</p>';
+    return;
   }
 
   state.cart = {};
@@ -1342,9 +1443,7 @@ async function placeOrder(rows, total) {
   updateCartCount();
   renderCartModal();
 
-  messageWrap.innerHTML = usedFallbackMailDraft
-    ? '<p class="notice">Order prepared. JSON download started and email draft opened (secure relay unavailable).</p>'
-    : '<p class="notice">Order sent securely via server relay. JSON download started.</p>';
+  messageWrap.innerHTML = '<p class="notice">Order confirmation sent from Curated Kadha to your email. JSON download started.</p>';
 }
 
 async function sendOrderEmailSecure(orderPayload) {

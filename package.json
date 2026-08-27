@@ -1,0 +1,9 @@
+{
+  "name": "curated-kadha-netlify-functions",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Netlify functions for Curated Kadha",
+  "dependencies": {
+    "nodemailer": "^6.9.15"
+  }
+}

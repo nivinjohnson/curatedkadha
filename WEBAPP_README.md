@@ -15,7 +15,8 @@ This is a standalone browser-based web app.
 - Cart/checkout page with:
   - quantity updates and cart total
   - local order export to JSON
-  - secure email send via local relay API (with fallback mail draft)
+  - secure email send from server-side relay to customer email
+  - NZ-assisted delivery address inputs (city suggestions + postcode assist)
 - Stock page with:
   - local login gate
   - catalog metrics
@@ -54,7 +55,27 @@ python -m http.server 8000
 ```
 
 When relay is running, checkout sends email through `/api/send-order-email` by default.
-If relay is unavailable, checkout falls back to opening an email draft in your mail client.
+If relay is unavailable, checkout shows an error and does not place the order.
+
+## Netlify production setup
+
+This repository includes a Netlify Function at `netlify/functions/send-order-email.js` and a redirect in `netlify.toml`.
+
+Set these environment variables in Netlify Site settings:
+
+```text
+ORDER_SMTP_HOST=smtp.gmail.com
+ORDER_SMTP_PORT=465
+ORDER_SMTP_USER=curatedkadha@gmail.com
+ORDER_SMTP_PASS=<gmail app password>
+ORDER_FROM_EMAIL=curatedkadha@gmail.com
+ORDER_BCC_EMAIL=curatedkadha@gmail.com
+```
+
+Result:
+- Mail is sent from `curatedkadha@gmail.com`
+- Mail is sent to the customer email entered in checkout
+- Curated Kadha receives a BCC copy (optional)
 
 ## Hosting on platforms
 
@@ -106,3 +127,6 @@ Then open:
 - `WEBAPP_README.md`
 - `secure_email_api.py`
 - `.env.email.example`
+- `netlify/functions/send-order-email.js`
+- `netlify.toml`
+- `package.json`

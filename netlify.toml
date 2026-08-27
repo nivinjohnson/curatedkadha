@@ -1,0 +1,7 @@
+[build]
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/send-order-email"
+  to = "/.netlify/functions/send-order-email"
+  status = 200

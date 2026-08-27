@@ -1,6 +1,9 @@
 [build]
   functions = "netlify/functions"
 
+[build.environment]
+  SECRETS_SCAN_OMIT_PATHS = "node_modules/**"
+
 [[redirects]]
   from = "/api/send-order-email"
   to = "/.netlify/functions/send-order-email"

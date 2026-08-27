@@ -61,7 +61,7 @@ If relay is unavailable, checkout shows an error and does not place the order.
 This repository includes a Netlify Function at `netlify/functions/send-order-email.js` and a redirect in `netlify.toml`.
 
 Result:
-- Mail is sent from `curatedkadha@gmail.com`
+- Mail is sent from the address configured in `ORDER_FROM_EMAIL` (or the SMTP user)
 - Mail is sent to the customer email entered in checkout
 - Curated Kadha receives a BCC copy (optional)
 

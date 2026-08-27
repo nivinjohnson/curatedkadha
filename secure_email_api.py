@@ -71,7 +71,6 @@ def build_email_body(payload: dict) -> str:
 
 def build_email_html(payload: dict) -> str:
     order_id = escape(str(payload.get("order_id", "")))
-    created_utc = escape(str(payload.get("created_utc", "")))
     name = escape(str(payload.get("customer_name", "")))
     customer_email = escape(str(payload.get("customer_email", "")))
     phone = escape(str(payload.get("customer_phone", "")))
@@ -107,7 +106,7 @@ def build_email_html(payload: dict) -> str:
 
     return f"""
 <!doctype html>
-<html>
+<html>and 
     <body style="margin:0;padding:0;background:#f7f2ea;font-family:Segoe UI,Arial,sans-serif;color:#2a2017;">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 12px;">
             <tr>
@@ -117,14 +116,12 @@ def build_email_html(payload: dict) -> str:
                             <td style="padding:22px 24px;background:linear-gradient(120deg,#e7d2b8,#f6e8d6);border-bottom:1px solid #eadccc;">
                                 <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#7e6044;font-weight:700;">Curated Kadha</div>
                                 <h1 style="margin:8px 0 0;font-size:24px;line-height:1.2;color:#20150b;">Order Placed Successfully</h1>
-                                <p style="margin:10px 0 0;font-size:14px;color:#5b4636;">Order details are sent to your email.</p>
                             </td>
                         </tr>
                         <tr>
                             <td style="padding:20px 24px 0;">
                                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #efe3d5;border-radius:12px;background:#fffaf4;">
                                     <tr><td style="padding:14px 16px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Order ID:</strong> {order_id}</td></tr>
-                                    <tr><td style="padding:0 16px 14px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Placed At (UTC):</strong> {created_utc}</td></tr>
                                 </table>
                             </td>
                         </tr>

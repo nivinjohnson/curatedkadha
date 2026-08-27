@@ -94,6 +94,7 @@ const state = {
     size: "all"
   },
   isCartModalOpen: false,
+  orderSuccessMessage: "",
   visibleCount: 24,
   selectedProductId: "",
   selectedStockGroupId: ""
@@ -687,15 +688,25 @@ function getCartRows() {
   return rows;
 }
 
-function updateCartCount() {
-  const count = Object.values(state.cart)
+function getCartCount() {
+  return Object.values(state.cart)
     .map((value) => Number(value || 0))
-    .filter((value) => value > 0)
+    .filter((value) => Number.isFinite(value) && value > 0)
     .reduce((sum, value) => sum + value, 0);
-  const target = document.getElementById("cartCount");
-  if (target) {
+}
+
+function updateCartCount() {
+  const count = getCartCount();
+
+  document.querySelectorAll("[data-cart-count]").forEach((target) => {
     target.textContent = String(count);
-  }
+  });
+}
+
+function clearCart() {
+  state.cart = {};
+  saveJson(CART_KEY, state.cart);
+  updateCartCount();
 }
 
 function setCartQty(groupId, qty) {
@@ -739,7 +750,7 @@ function renderShop() {
 
         <div class="shop-tools">
           <button class="secondary" id="shopNavStockBtn" type="button">Login</button>
-          <button class="secondary" id="shopNavCartBtn" type="button">Cart (${Object.values(state.cart).map((value) => Number(value || 0)).filter((value) => value > 0).reduce((sum, value) => sum + value, 0)})</button>
+          <button class="secondary" id="shopNavCartBtn" type="button">Cart (<span data-cart-count>0</span>)</button>
         </div>
 
       </div>
@@ -774,6 +785,7 @@ function renderShop() {
     </section>
   `;
 
+  updateCartCount();
   bindShopFilterHandlers();
   renderShopGrid();
   if (state.isCartModalOpen) {
@@ -1248,7 +1260,7 @@ function renderCartModal() {
           <button id="placeOrderBtn">Place order</button>
           <button class="secondary" id="backToCartBtn" type="button">Back to cart</button>
         </div>
-        <div id="orderMessage"></div>
+        <div id="orderMessage">${state.orderSuccessMessage ? `<p class="notice">${escapeHtml(state.orderSuccessMessage)}</p>` : ""}</div>
       </article>
     </section>
   `;
@@ -1296,12 +1308,13 @@ function renderCartModal() {
     }
   };
 
-  document.getElementById("clearCartBtn").addEventListener("click", () => {
-    state.cart = {};
-    saveJson(CART_KEY, state.cart);
-    updateCartCount();
-    renderCartModal();
-  });
+  const clearCartBtn = document.getElementById("clearCartBtn");
+  if (clearCartBtn) {
+    clearCartBtn.addEventListener("click", () => {
+      clearCart();
+      renderCartModal();
+    });
+  }
 
   const showPlaceOrderOnly = () => {
     const modalPanelRoot = document.getElementById("cartModalPanelRoot");
@@ -1382,6 +1395,7 @@ async function placeOrder(rows, total) {
   const country = document.getElementById("nzCountry").value.trim() || "New Zealand";
   const address = [addressLine1, suburb, city, postcode, country].filter(Boolean).join(", ");
   const messageWrap = document.getElementById("orderMessage");
+  state.orderSuccessMessage = "";
 
   if (!name || !phone || !email || !addressLine1 || !city || !postcode) {
     messageWrap.innerHTML = '<p class="notice error">Please complete name, phone, email, and NZ delivery address fields (line, city, postcode).</p>';
@@ -1392,7 +1406,7 @@ async function placeOrder(rows, total) {
     return;
   }
 
-  const orderId = `order_${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
+  const orderId = String(Math.floor(10000 + Math.random() * 90000));
   const payload = {
     order_id: orderId,
     created_utc: new Date().toISOString(),
@@ -1445,12 +1459,9 @@ async function placeOrder(rows, total) {
     return;
   }
 
-  state.cart = {};
-  saveJson(CART_KEY, state.cart);
-  updateCartCount();
+  clearCart();
+  state.orderSuccessMessage = "Order placed successfully. Details have been sent to your email address.";
   renderCartModal();
-
-  messageWrap.innerHTML = '<p class="notice">Order placed successfully. Order details are sent to your email.</p>';
 }
 
 async function sendOrderEmailSecure(orderPayload) {

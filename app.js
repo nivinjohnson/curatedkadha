@@ -1404,6 +1404,15 @@ async function placeOrder(rows, total) {
     items: rows
   };
 
+  const emailItems = rows.map((row) => {
+    const relativeImage = imageUrl(row.image || "");
+    const absoluteImage = relativeImage ? new URL(relativeImage, location.href).toString() : "";
+    return {
+      ...row,
+      image_url: absoluteImage
+    };
+  });
+
   const lines = rows.map((row) => `- ${row.title} | qty ${row.qty} | ${formatMoney(row.line_total)}`).join("%0D%0A");
   const body = [
     `Order ID: ${orderId}`,
@@ -1428,7 +1437,7 @@ async function placeOrder(rows, total) {
       customer_phone: phone,
       address,
       total,
-      items: rows,
+      items: emailItems,
       body: plainBody
     });
   } catch {
@@ -1441,7 +1450,7 @@ async function placeOrder(rows, total) {
   updateCartCount();
   renderCartModal();
 
-  messageWrap.innerHTML = '<p class="notice">Order confirmation sent from Curated Kadha to your email.</p>';
+  messageWrap.innerHTML = '<p class="notice">Order placed successfully. Order details are sent to your email.</p>';
 }
 
 async function sendOrderEmailSecure(orderPayload) {

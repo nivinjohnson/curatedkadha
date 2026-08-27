@@ -1,5 +1,6 @@
 import os
 import smtplib
+from html import escape
 from email.message import EmailMessage
 from flask import Flask, jsonify, request
 
@@ -38,6 +39,10 @@ def format_items(items) -> str:
     return "\n".join(lines)
 
 
+def money(value) -> str:
+    return f"${float(value or 0):.2f}"
+
+
 def build_email_body(payload: dict) -> str:
     if payload.get("body"):
         return str(payload["body"])
@@ -62,6 +67,103 @@ def build_email_body(payload: dict) -> str:
         "",
         f"Grand total: ${total:.2f}"
     ])
+
+
+def build_email_html(payload: dict) -> str:
+    order_id = escape(str(payload.get("order_id", "")))
+    created_utc = escape(str(payload.get("created_utc", "")))
+    name = escape(str(payload.get("customer_name", "")))
+    customer_email = escape(str(payload.get("customer_email", "")))
+    phone = escape(str(payload.get("customer_phone", "")))
+    address = escape(str(payload.get("address", "")))
+    total = float(payload.get("total", 0) or 0)
+    items = payload.get("items", []) if isinstance(payload.get("items", []), list) else []
+
+    item_cards = []
+    for item in items:
+        title = escape(str(item.get("title", "Item")))
+        qty = int(item.get("qty", 0) or 0)
+        unit_price = float(item.get("price", 0) or 0)
+        line_total = float(item.get("line_total", 0) or 0)
+        image_url = escape(str(item.get("image_url", "")).strip())
+        image_block = (
+            f'<img src="{image_url}" alt="{title}" style="width:100%;max-width:180px;height:180px;object-fit:cover;border-radius:14px;border:1px solid #eadccc;display:block;" />'
+            if image_url else
+            '<div style="width:100%;max-width:180px;height:180px;border-radius:14px;border:1px solid #eadccc;background:#f6efe6;color:#8b6f4e;display:flex;align-items:center;justify-content:center;font-size:13px;">No image</div>'
+        )
+        item_cards.append(
+            "<tr>"
+            f"<td style=\"padding:14px 0;border-bottom:1px solid #f0e6d8;vertical-align:top;\">{image_block}</td>"
+            "<td style=\"padding:14px 0 14px 14px;border-bottom:1px solid #f0e6d8;vertical-align:top;\">"
+            f"<div style=\"font-size:16px;font-weight:700;color:#1c140d;\">{title}</div>"
+            f"<div style=\"font-size:13px;color:#6e5440;margin-top:6px;\">Qty: {qty}</div>"
+            f"<div style=\"font-size:13px;color:#6e5440;\">Unit price: {money(unit_price)}</div>"
+            f"<div style=\"font-size:14px;color:#1c140d;font-weight:700;margin-top:8px;\">Line total: {money(line_total)}</div>"
+            "</td>"
+            "</tr>"
+        )
+
+    items_html = "".join(item_cards) if item_cards else "<tr><td style=\"padding:12px 0;color:#7a634d;\">No items listed.</td></tr>"
+
+    return f"""
+<!doctype html>
+<html>
+    <body style="margin:0;padding:0;background:#f7f2ea;font-family:Segoe UI,Arial,sans-serif;color:#2a2017;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 12px;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:720px;background:#ffffff;border:1px solid #eadccc;border-radius:18px;overflow:hidden;">
+                        <tr>
+                            <td style="padding:22px 24px;background:linear-gradient(120deg,#e7d2b8,#f6e8d6);border-bottom:1px solid #eadccc;">
+                                <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#7e6044;font-weight:700;">Curated Kadha</div>
+                                <h1 style="margin:8px 0 0;font-size:24px;line-height:1.2;color:#20150b;">Order Placed Successfully</h1>
+                                <p style="margin:10px 0 0;font-size:14px;color:#5b4636;">Order details are sent to your email.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:20px 24px 0;">
+                                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #efe3d5;border-radius:12px;background:#fffaf4;">
+                                    <tr><td style="padding:14px 16px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Order ID:</strong> {order_id}</td></tr>
+                                    <tr><td style="padding:0 16px 14px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Placed At (UTC):</strong> {created_utc}</td></tr>
+                                </table>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:20px 24px 0;">
+                                <h2 style="margin:0 0 10px;font-size:18px;color:#24190f;">Customer Details</h2>
+                                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #efe3d5;border-radius:12px;">
+                                    <tr><td style="padding:12px 16px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Name:</strong> {name}</td></tr>
+                                    <tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Email:</strong> {customer_email}</td></tr>
+                                    <tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Phone:</strong> {phone}</td></tr>
+                                    <tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Delivery Address:</strong> {address}</td></tr>
+                                </table>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:20px 24px 0;">
+                                <h2 style="margin:0 0 10px;font-size:18px;color:#24190f;">Order Items</h2>
+                                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                                    {items_html}
+                                </table>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:18px 24px 24px;">
+                                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:2px dashed #eddcc7;padding-top:14px;">
+                                    <tr>
+                                        <td style="font-size:16px;color:#4a3729;"><strong>Grand Total</strong></td>
+                                        <td align="right" style="font-size:20px;color:#20150b;"><strong>{money(total)}</strong></td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>
+"""
 
 
 @app.route("/api/send-order-email", methods=["OPTIONS"])
@@ -96,6 +198,7 @@ def send_order_email():
     order_id = str(payload.get("order_id", "order"))
     subject = f"Order confirmation: {order_id}"
     body = build_email_body(payload)
+    html_body = build_email_html(payload)
 
     message = EmailMessage()
     message["Subject"] = subject
@@ -104,6 +207,7 @@ def send_order_email():
     if bcc_email:
         message["Bcc"] = bcc_email
     message.set_content(body)
+    message.add_alternative(html_body, subtype="html")
 
     try:
         with smtplib.SMTP_SSL(host=smtp_host, port=smtp_port, timeout=25) as server:

@@ -532,13 +532,26 @@ async function loadCatalog(options = {}) {
   }
 
   const buffer = await response.arrayBuffer();
+  return parseExcelBufferToCatalog(buffer);
+}
+
+function parseExcelBufferToCatalog(buffer) {
   const workbook = XLSX.read(buffer, { type: "array" });
   const firstSheet = workbook.SheetNames[0];
   if (!firstSheet) {
-    throw new Error("Catalog workbook has no sheets.");
+    throw new Error("Excel workbook has no sheets.");
   }
 
   const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: "" });
+  if (rows.length === 0) {
+    throw new Error("Excel workbook contains no rows.");
+  }
+
+  const hasCatalogCols = rows.some((r) => Boolean(r.group_id || r.product_date || r.primary_image_file || r.item_count));
+  if (!hasCatalogCols && rows.some((r) => Boolean(r.caption || r.media_id || r.id))) {
+    return normalizeInstagramRowsToCatalog(rows);
+  }
+
   return rows.map((row, index) => {
     const groupId = String(row.group_id || row.parent_media_id || row.record_id || `item-${index}`).trim();
     const imageFiles = String(row.image_files || "")
@@ -548,10 +561,10 @@ async function loadCatalog(options = {}) {
     const primaryImage = String(row.primary_image_file || imageFiles[0] || "").trim();
 
     const hasPreParsedFields = Boolean(
-      String(row.dress_description || "").trim()
-      || String(row.size_mentions || "").trim()
-      || String(row.sold_sizes || "").trim()
-      || String(row.tags || "").trim()
+      String(row.dress_description || "").trim() ||
+      String(row.size_mentions || "").trim() ||
+      String(row.sold_sizes || "").trim() ||
+      String(row.tags || "").trim()
     );
     const parsed = hasPreParsedFields ? null : categorizeDescription(String(row.description || ""));
 
@@ -569,11 +582,90 @@ async function loadCatalog(options = {}) {
       product_type: String(row.product_type || "IMAGE"),
       product_date: normalizeDate(row.product_date),
       price: Number(row.price || 0),
-      caption_has_sold: String(row.caption_has_sold).toLowerCase() === "true" || Boolean(row.caption_has_sold),
+      caption_has_sold: boolFromCell(row.caption_has_sold, false),
       item_count: Number(row.item_count || imageFiles.length || 1),
-      active: row.active === "" ? true : Boolean(row.active)
+      active: row.active === "" ? true : boolFromCell(row.active, true)
     };
   });
+}
+
+async function syncExcelDataToDatabase(options = {}) {
+  let buffer;
+  let sourceName = "product_catalog.xlsx";
+
+  if (options.file && options.file instanceof File) {
+    sourceName = options.file.name;
+    buffer = await options.file.arrayBuffer();
+  } else {
+    const targetUrl = options.url || CATALOG_URL;
+    sourceName = targetUrl;
+    const response = await fetch(`${targetUrl}${targetUrl.includes("?") ? "&" : "?"}v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} while fetching ${targetUrl}`);
+    }
+    buffer = await response.arrayBuffer();
+  }
+
+  const incomingProducts = parseExcelBufferToCatalog(buffer);
+  if (!incomingProducts || incomingProducts.length === 0) {
+    throw new Error("No products found in Excel sheet.");
+  }
+
+  // Identify existing products to strictly preserve existing data without overwriting
+  const existingGroupIdSet = new Set((state.products || []).map((p) => String(p.group_id)));
+  const newOnlyProducts = incomingProducts.filter((item) => !existingGroupIdSet.has(String(item.group_id)));
+  const skippedCount = incomingProducts.length - newOnlyProducts.length;
+
+  // Format new products with joined image_files for database table insertion
+  const payloadProducts = (newOnlyProducts.length > 0 ? newOnlyProducts : incomingProducts).map((item) => ({
+    ...item,
+    image_files: Array.isArray(item.image_files) ? item.image_files.join(";") : String(item.image_files || "")
+  }));
+
+  // Send product records to DB table with mode="insert_only"
+  let syncedToSupabase = false;
+  let insertedCount = newOnlyProducts.length;
+  try {
+    const syncRes = await fetch(CATALOG_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        products: payloadProducts,
+        mode: "insert_only"
+      })
+    });
+    if (syncRes.ok) {
+      const syncResult = await syncRes.json();
+      if (syncResult.ok) {
+        syncedToSupabase = true;
+        if (typeof syncResult.insertedCount === "number") {
+          insertedCount = syncResult.insertedCount;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Direct DB sync API call error:", err);
+  }
+
+  // Only append genuinely new products to local state; preserve all existing product state and pricing
+  if (newOnlyProducts.length > 0) {
+    const formattedNew = newOnlyProducts.map((item) => ({
+      ...item,
+      image_files: parseImageFiles(item.image_files)
+    }));
+    state.products = [...state.products, ...formattedNew];
+    saveCatalogCache(state.products);
+    applyStockEdits();
+    updateCartCount();
+  }
+
+  return {
+    sourceName,
+    insertedCount,
+    skippedCount,
+    total: state.products.length,
+    syncedToSupabase
+  };
 }
 
 async function saveCatalogToServer(products) {
@@ -669,6 +761,27 @@ function parseImageFiles(value) {
     .filter(Boolean);
 }
 
+function computeDefaultPrice(title, description, tags, itemCount) {
+  const text = `${title || ""} ${description || ""} ${tags || ""}`.toLowerCase();
+  if (
+    text.includes("dress") ||
+    text.includes("coord") ||
+    text.includes("co-ord") ||
+    text.includes("set") ||
+    text.includes("maxi") ||
+    text.includes("gown") ||
+    text.includes("anarkali") ||
+    text.includes("kurta") ||
+    text.includes("suit") ||
+    text.includes("jacket") ||
+    text.includes("skirt") ||
+    Number(itemCount || 1) > 2
+  ) {
+    return 39;
+  }
+  return 29;
+}
+
 function normalizeInstagramRowsToCatalog(rows) {
   const grouped = new Map();
 
@@ -724,7 +837,7 @@ function normalizeInstagramRowsToCatalog(rows) {
       permalink: pickFirstValue(first, ["permalink", "post_url", "url"]),
       product_type: pickFirstValue(first, ["product_type", "media_type"]) || "IMAGE",
       product_date: normalizeDate(productDateRaw),
-      price: Number(pickFirstValue(first, ["price"]) || 0),
+      price: Number(pickFirstValue(first, ["price"])) || computeDefaultPrice(title, caption, pickFirstValue(first, ["tags"]) || parsed.tags, imageFiles.length),
       caption_has_sold: boolFromCell(first.caption_has_sold, soldSizesSheet ? true : false),
       item_count: Number(pickFirstValue(first, ["item_count"]) || imageFiles.length || 1),
       active: boolFromCell(first.active, true)
@@ -732,87 +845,34 @@ function normalizeInstagramRowsToCatalog(rows) {
   });
 }
 
-async function rebuildCatalogFromInstagram() {
-  const response = await fetch(INSTAGRAM_SOURCE_URL);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} while fetching ${INSTAGRAM_SOURCE_URL}`);
-  }
-
-  const buffer = await response.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array" });
-  const firstSheet = workbook.SheetNames[0];
-  if (!firstSheet) {
-    throw new Error("Instagram workbook has no sheets.");
-  }
-
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: "" });
-  if (rows.length === 0) {
-    throw new Error("Instagram workbook is empty.");
-  }
-
-  const rebuilt = normalizeInstagramRowsToCatalog(rows);
-
-  // Send converted product catalog directly to Supabase via Netlify function
-  let syncedToSupabase = false;
-  try {
-    const syncRes = await fetch(CATALOG_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ products: rebuilt })
-    });
-    if (syncRes.ok) {
-      const syncResult = await syncRes.json();
-      if (syncResult.ok) {
-        syncedToSupabase = true;
-      }
-    }
-  } catch (err) {
-    console.warn("Could not sync converted catalog to Supabase directly:", err);
-  }
-
-  // Instantly update local app state with new converted products so reload is not needed
-  state.products = rebuilt.map((item) => ({
-    ...item,
-    image_files: parseImageFiles(item.image_files)
-  }));
-  saveCatalogCache(state.products);
-  updateCartCount();
-
-  const outputHeaders = [
-    "group_id",
-    "title",
-    "description",
-    "dress_description",
-    "size_mentions",
-    "sold_sizes",
-    "tags",
-    "primary_image_file",
-    "image_files",
-    "permalink",
-    "product_type",
-    "product_date",
-    "price",
-    "caption_has_sold",
-    "item_count",
-    "active"
-  ];
-
-  const outWorkbook = XLSX.utils.book_new();
-  const outSheet = XLSX.utils.json_to_sheet(rebuilt, { header: outputHeaders });
-  XLSX.utils.book_append_sheet(outWorkbook, outSheet, "catalog");
-    const dateToken = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-    const fileName = `new_product_catalog_${dateToken}.xlsx`;
-    XLSX.writeFile(outWorkbook, fileName);
-
-    return {
-      fileName,
-      count: rebuilt.length,
-      syncedToSupabase
-    };
-}
-
 function formatMoney(value) {
   return `$${Number(value || 0).toFixed(2)}`;
+}
+
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fallback to execCommand below
+  }
+  try {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-999999px";
+    textArea.style.top = "-999999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const successful = document.execCommand("copy");
+    textArea.remove();
+    return successful;
+  } catch {
+    return false;
+  }
 }
 
 function formatSizeLabel(size) {
@@ -1077,29 +1137,6 @@ function renderShopGrid() {
     });
   });
 
-  grid.querySelectorAll(".card-enlarge-btn").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const card = button.closest(".card");
-      if (!card) {
-        return;
-      }
-      const imageNode = card.querySelector("[data-main-image]");
-      if (!imageNode || !imageNode.getAttribute("src")) {
-        return;
-      }
-      const groupId = card.getAttribute("data-id");
-      const product = state.filteredProducts.find((item) => item.group_id === groupId) || state.products.find((item) => item.group_id === groupId);
-      const images = product && product.image_files.length > 0
-        ? product.image_files.map((file) => imageUrl(file)).filter(Boolean)
-        : [imageNode.getAttribute("src")];
-      const currentSrc = imageNode.getAttribute("src");
-      const startIndex = Math.max(0, images.findIndex((src) => src === currentSrc));
-      const titleNode = card.querySelector(".card-title");
-      openImageViewer(images, startIndex, titleNode ? titleNode.textContent : "Product image");
-    });
-  });
-
   if (state.visibleCount < state.filteredProducts.length) {
     loadWrap.innerHTML = `
       <div class="notice" style="text-align:center; margin-top: 0.3rem;">Loading more as you scroll...</div>
@@ -1155,7 +1192,6 @@ function teardownShopAutoLoad() {
 function renderProductCard(item) {
   const images = item.image_files.length > 0 ? item.image_files : [""];
   const firstImage = imageUrl(images[0]);
-  const canEnlarge = Boolean(images[0]);
   const sizeText = splitSizes(item.size_mentions).slice(0, 1).map(formatSizeLabel).join(" ");
   const isSold = Boolean(item.caption_has_sold);
   const dots = images.length > 1
@@ -1166,7 +1202,6 @@ function renderProductCard(item) {
     <article class="card ${isSold ? "card-sold-out" : ""}" data-id="${escapeHtml(item.group_id)}">
       <div class="card-media-wrap">
         <img class="card-media" data-main-image src="${firstImage}" alt="${escapeHtml(item.title)}" loading="lazy" decoding="async" />
-        ${canEnlarge ? '<button class="card-enlarge-btn" type="button" aria-label="Enlarge image">⤢</button>' : ""}
         ${images.length > 1 ? `<div class="card-counter" data-counter>1/${images.length}</div>` : ""}
         ${dots}
       </div>
@@ -1217,11 +1252,21 @@ function renderProductDetails(productId) {
   const effectiveSold = parsedSold.length ? parsedSold : splitSizes(product.sold_sizes);
   const mentionedSizes = new Set(effectiveMentions);
   const soldSizes = new Set(effectiveSold);
-  const sizes = SIZE_ORDER.filter((size) => mentionedSizes.has(size));
-  const availableSizeCount = sizes.filter((size) => !soldSizes.has(size)).length;
+
+  const allSizesSet = new Set([...effectiveMentions, ...effectiveSold]);
+  const sizes = SIZE_ORDER.filter((size) => allSizesSet.has(size));
+  Array.from(allSizesSet).forEach((size) => {
+    if (size && !sizes.includes(size)) {
+      sizes.push(size);
+    }
+  });
+
+  const availableSizes = sizes.filter((size) => !soldSizes.has(size));
+  const soldSizesList = sizes.filter((size) => soldSizes.has(size));
+  const availableSizeCount = availableSizes.length;
   const fullySoldOut =
-  Boolean(product.caption_has_sold) ||
-  (sizes.length > 0 && availableSizeCount === 0);
+    Boolean(product.caption_has_sold) ||
+    (sizes.length > 0 && availableSizeCount === 0);
   const description = String(product.dress_description || product.description || "").trim();
   const cleanTitle = String(product.title || "Untitled product")
     .replace(/^\s*sold\s*out\s*[❌✖✕x-]*\s*/i, "")
@@ -1231,17 +1276,24 @@ function renderProductDetails(productId) {
   const sizeMarkup = sizes.length
     ? sizes.map((size) => {
         const sold = soldSizes.has(size);
-        return `<span class="detail-size ${sold ? "detail-size-sold" : ""}" ${sold ? 'aria-disabled="true" title="Sold out"' : ""}>
+        return `<span class="detail-size ${sold ? "detail-size-sold" : "detail-size-avail"}" ${sold ? 'aria-disabled="true" title="Sold out"' : ""}>
           <span>${escapeHtml(formatSizeLabel(size))}</span>
-          ${sold ? '<small>Sold</small>' : ""}
+          ${sold ? '<small class="sold-tag">Sold</small>' : ""}
         </span>`;
       }).join("")
     : '<span class="detail-size-empty">Size not specified</span>';
 
   const carouselMarkup = imageUrls.length
     ? `<div class="detail-carousel" id="detailCarousel">
+        <div class="detail-pill-actions">
+          <button id="detailClosePillBtn" class="detail-pill-btn" type="button" aria-label="Close product info" title="Close">
+            <span aria-hidden="true" class="detail-pill-close-x">✕</span>
+          </button>
+          <button id="detailCopyLinkPillBtn" class="detail-pill-btn" type="button" aria-label="Copy product link" title="Copy product link">
+            <span id="detailLinkSymbol" aria-hidden="true" class="detail-pill-link-sym">🔗</span>
+          </button>
+        </div>
         <img id="detailMainImage" class="detail-carousel-image" src="${escapeHtml(imageUrls[0])}" alt="${escapeHtml(cleanTitle)}" />
-        <button id="detailEnlargeBtn" class="detail-enlarge" type="button" aria-label="Enlarge product image" title="Enlarge image"><span aria-hidden="true">⤢</span></button>
         ${imageUrls.length > 1 ? `
           <button id="detailPrevBtn" class="detail-arrow detail-arrow-prev" type="button" aria-label="Previous image"><span aria-hidden="true">˂</span></button>
           <button id="detailNextBtn" class="detail-arrow detail-arrow-next" type="button" aria-label="Next image"><span aria-hidden="true">˃</span></button>
@@ -1253,89 +1305,156 @@ function renderProductDetails(productId) {
       ${imageUrls.length > 1 ? `<div class="detail-thumbnails">
         ${imageUrls.map((url, index) => `<button type="button" class="detail-thumb ${index === 0 ? "active" : ""}" data-detail-thumb="${index}" aria-label="Show image ${index + 1}"><img src="${escapeHtml(url)}" alt="" /></button>`).join("")}
       </div>` : ""}`
-    : '<div class="detail-no-image">No product image</div>';
+    : `<div class="detail-no-image" style="position:relative">
+        <div class="detail-pill-actions">
+          <button id="detailClosePillBtn" class="detail-pill-btn" type="button" aria-label="Close product info" title="Close">
+            <span aria-hidden="true" class="detail-pill-close-x">✕</span>
+          </button>
+          <button id="detailCopyLinkPillBtn" class="detail-pill-btn" type="button" aria-label="Copy product link" title="Copy product link">
+            <span id="detailLinkSymbol" aria-hidden="true" class="detail-pill-link-sym">🔗</span>
+          </button>
+        </div>
+        No product image
+      </div>`;
 
   app.innerHTML = `
     <style>
-      .product-detail-page{max-width:1220px;margin:1rem auto;padding:0 1rem 2rem}
-      .product-detail-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:clamp(1.5rem,4vw,3.25rem);align-items:start}
+      .product-detail-page{max-width:1220px;margin:1rem auto 2rem;padding:0 1.25rem 2.5rem}
+      .product-detail-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);gap:clamp(1.75rem,4.5vw,3.5rem);align-items:start}
       .detail-carousel{position:relative;display:grid;place-items:center;min-height:420px;overflow:hidden;border-radius:16px;background:#f5f3f1;touch-action:pan-y}
-      .detail-carousel-image{display:block;width:100%;height:min(68vh,700px);object-fit:contain;cursor:zoom-in;user-select:none}
-      .detail-arrow,.detail-enlarge{position:absolute;z-index:3;display:grid;place-items:center;border:0;border-radius:999px;background:rgba(255,255,255,.94);color:#231a16;box-shadow:0 6px 20px rgba(0,0,0,.2);cursor:pointer}
+      .detail-pill-actions{position:absolute;top:12px;right:12px;z-index:10;display:flex;flex-direction:column;gap:8px}
+      .detail-pill-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid rgba(0,0,0,0.09);border-radius:999px;background:rgba(255,255,255,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#332d27;box-shadow:0 2px 8px rgba(0,0,0,0.12);cursor:pointer;transition:all 0.15s ease}
+      .detail-pill-btn:hover{background:#ffffff;color:#000000;transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,0.18)}
+      .detail-pill-btn:active{transform:scale(0.95)}
+      .detail-pill-btn.copied{background:#eef6eb;color:#284521;border-color:#84a97b}
+      .detail-pill-close-x{font-size:0.78rem;font-weight:700;line-height:1}
+      .detail-pill-link-sym{font-size:0.78rem;line-height:1}
+      .detail-carousel-image{display:block;width:100%;height:min(68vh,700px);object-fit:contain;user-select:none}
+      .detail-arrow{position:absolute;z-index:3;display:grid;place-items:center;border:0;border-radius:999px;background:rgba(255,255,255,.94);color:#231a16;box-shadow:0 6px 20px rgba(0,0,0,.2);cursor:pointer}
       .detail-arrow{top:50%;width:48px;height:48px;transform:translateY(-50%);font-size:2.3rem;line-height:1}
       .detail-arrow:hover{transform:translateY(-50%) scale(1.06)}
       .detail-arrow-prev{left:14px}.detail-arrow-next{right:14px}
-      .detail-enlarge{top:14px;right:14px;width:44px;height:44px;font-size:1.35rem}
-      .detail-enlarge:hover{transform:scale(1.06)}
       .detail-counter{position:absolute;right:14px;bottom:14px;padding:.42rem .72rem;border-radius:999px;background:rgba(25,19,16,.76);color:#fff;font-size:.82rem;font-weight:700}
       .detail-dots{position:absolute;bottom:18px;left:50%;display:flex;gap:7px;transform:translateX(-50%)}
       .detail-dot{width:10px;height:10px;min-width:10px;padding:0;border:1px solid #fff;border-radius:50%;background:rgba(40,30,25,.42);cursor:pointer}.detail-dot.active{background:#fff;transform:scale(1.25)}
-      .detail-thumbnails{display:flex;gap:10px;margin-top:12px;padding-bottom:4px;overflow-x:auto}
+      .detail-thumbnails{display:flex;gap:10px;margin-top:14px;padding-bottom:4px;overflow-x:auto}
       .detail-thumb{flex:0 0 auto;padding:2px;border:2px solid transparent;border-radius:10px;background:transparent;cursor:pointer}.detail-thumb.active{border-color:var(--brand,#7b916f)}
       .detail-thumb img{display:block;width:72px;height:72px;border-radius:7px;object-fit:cover}
-      .detail-sizes{display:flex;flex-wrap:wrap;gap:9px;margin-top:9px}.detail-size{display:inline-flex;align-items:center;gap:6px;min-width:48px;justify-content:center;padding:.58rem .8rem;border:1px solid #cfc8c3;border-radius:9px;background:#fff;font-weight:700}
-      .detail-size-sold{border-color:#d7d7d7;background:#e7e7e7;color:#8a8a8a;opacity:.78;text-decoration:line-through;cursor:not-allowed}.detail-size-sold small{font-size:.62rem;text-transform:uppercase;text-decoration:none}.detail-size-empty{color:#777}
+      .detail-price-tag{font-size:1.65rem;font-weight:700;color:#24201c;margin:0.85rem 0 1.25rem;line-height:1.2}
+      .detail-description{font-size:1rem;white-space:pre-line;line-height:1.8;color:#3d3630;margin:0 0 1.5rem;letter-spacing:0.01em}
+      .detail-section-block{margin:1.6rem 0}
+      .detail-section-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.6rem}
+      .detail-sizes{display:flex;flex-wrap:wrap;gap:10px;margin-top:0.4rem}
+      .detail-size{display:inline-flex;align-items:center;gap:6px;min-width:48px;justify-content:center;padding:.58rem .85rem;border:1px solid #cfc8c3;border-radius:9px;background:#fff;font-weight:700;line-height:1.3}
+      .detail-size-sold{border-color:#e0d0cb;background:#f8ece8;color:#934638;opacity:.88;cursor:not-allowed}
+      .detail-size-sold small{font-size:.62rem;text-transform:uppercase;background:#e8cfc9;color:#782c1f;padding:0.12rem 0.35rem;border-radius:4px;font-weight:700}
+      .detail-size-avail{border-color:#cbd6c3;background:#f7fbf4;color:#284521}
+      .detail-size-empty{color:#777;line-height:1.6}
+      .detail-sold-banner{margin-top:0.9rem;padding:0.65rem 0.85rem;border-radius:8px;background:#fdf2f0;border:1px solid #f2d4ce;font-size:0.88rem;line-height:1.6;color:#802b20}
       .detail-no-image{min-height:380px;display:grid;place-items:center;border-radius:16px;background:#f1f1f1}
       @media(max-width:820px){
-        .product-detail-page{margin:.45rem auto;padding:0 .65rem 1.25rem}
-        .product-detail-page>.secondary{margin-left:.1rem}
-        .product-detail-page .panel{padding:1rem}
-        .product-detail-grid{grid-template-columns:minmax(0,1fr);gap:1.2rem}
+        .product-detail-page{margin:.5rem auto;padding:0 .75rem 1.5rem}
+        .product-detail-page .panel{padding:1.15rem}
+        .product-detail-grid{grid-template-columns:minmax(0,1fr);gap:1.35rem}
         .detail-carousel{width:100%;min-height:0;aspect-ratio:4/5;border-radius:13px}
         .detail-carousel-image{width:100%;height:100%;max-height:none;object-fit:contain}
-        .detail-thumbnails{gap:7px;margin-top:8px}
+        .detail-thumbnails{gap:8px;margin-top:10px}
         .detail-thumb img{width:58px;height:58px}
+        .detail-description{line-height:1.75;margin-bottom:1.25rem}
       }
       @media(max-width:520px){
         .product-detail-page{padding-inline:.45rem}
-        .product-detail-page .panel{padding:.72rem;border-radius:12px}
-        .product-detail-grid{gap:1rem}
+        .product-detail-page .panel{padding:.85rem;border-radius:12px}
+        .product-detail-grid{gap:1.15rem}
         .detail-carousel{aspect-ratio:3/4;border-radius:11px}
-        .detail-arrow{width:30px;height:30px;font-size:1rem;box-shadow:0 3px 10px rgba(0,0,0,.18)}
+        .detail-pill-actions{top:9px;right:9px;gap:7px}
+        .detail-pill-btn{width:28px;height:28px}
+        .detail-pill-close-x{font-size:0.72rem}
+        .detail-pill-link-sym{font-size:0.72rem}
+        .detail-arrow{width:32px;height:32px;font-size:1rem;box-shadow:0 3px 10px rgba(0,0,0,.18)}
         .detail-arrow-prev{left:6px}.detail-arrow-next{right:6px}
-        .detail-enlarge{top:7px;right:7px;width:30px;height:30px;font-size:.8rem;box-shadow:0 3px 10px rgba(0,0,0,.18)}
         .detail-counter{right:7px;bottom:8px;padding:.27rem .48rem;font-size:.68rem}
         .detail-dots{bottom:11px;gap:5px}
         .detail-dot{width:7px;height:7px;min-width:7px}
         .detail-thumbnails{gap:6px;scrollbar-width:thin}
         .detail-thumb{padding:1px;border-radius:8px}
         .detail-thumb img{width:49px;height:49px;border-radius:6px}
-        .detail-sizes{gap:6px}
-        .detail-size{min-width:40px;padding:.43rem .58rem;font-size:.82rem}
-        .detail-size-sold small{font-size:.52rem}
-        .product-detail-grid h1{font-size:clamp(1.45rem,7vw,1.85rem);line-height:1.15;margin-bottom:.45rem}
-        .product-detail-grid p{font-size:.92rem;line-height:1.5}
+        .detail-price-tag{font-size:1.45rem;margin:0.7rem 0 1rem}
+        .detail-description{font-size:.95rem;line-height:1.7}
+        .detail-sizes{gap:7px}
+        .detail-size{min-width:42px;padding:.45rem .62rem;font-size:.84rem}
+        .detail-size-sold small{font-size:.54rem}
+        .product-detail-grid h1{font-size:clamp(1.45rem,7vw,1.85rem);line-height:1.2;margin-bottom:.55rem}
         #addDetailToCartBtn{max-width:none!important;min-height:44px}
       }
       @media(max-width:360px){
         .product-detail-page{padding-inline:.25rem}
-        .product-detail-page .panel{padding:.55rem}
+        .product-detail-page .panel{padding:.65rem}
         .detail-carousel{aspect-ratio:1/1.28}
         .detail-arrow{width:27px;height:27px;font-size:.88rem}
-        .detail-enlarge{width:27px;height:27px;font-size:.72rem}
         .detail-counter{display:none}
         .detail-thumb img{width:44px;height:44px}
       }
     </style>
     <section class="product-detail-page">
-      <button class="secondary" id="backToShopBtn" type="button" style="margin-bottom:1rem">← Back to shop</button>
       <article class="panel">
         <div class="product-detail-grid">
           <div>${carouselMarkup}</div>
           <div>
-            <div style="font-size:1.6rem;font-weight:700;margin:.75rem 0">${formatMoney(product.price)}</div>
-            ${description ? `<p style="white-space:pre-line;line-height:1.65">${escapeHtml(description)}</p>` : ""}
-            <div style="margin:1.25rem 0"><strong>Sizes</strong><div class="detail-sizes">${sizeMarkup}</div></div>
-            ${product.item_count ? `<p><strong>Items:</strong> ${Number(product.item_count)}</p>` : ""}
-            ${fullySoldOut ? '<button type="button" disabled style="width:100%;max-width:360px">Sold Out</button>' : '<button id="addDetailToCartBtn" type="button" style="width:100%;max-width:360px">+ Add to Order</button>'}
-            <div id="productDetailMessage" style="margin-top:1rem"></div>
+            <div class="detail-price-tag">${formatMoney(product.price)}</div>
+            ${description ? `<p class="detail-description">${escapeHtml(description)}</p>` : ""}
+            <div class="detail-section-block">
+              <div class="detail-section-header">
+                <strong>Sizes</strong>
+                ${soldSizesList.length > 0 ? `<span style="font-size:0.82rem; color:#853838; font-weight:600">${soldSizesList.length} size${soldSizesList.length > 1 ? "s" : ""} sold out</span>` : ""}
+              </div>
+              <div class="detail-sizes">${sizeMarkup}</div>
+              ${soldSizesList.length > 0 ? `
+                <div class="detail-sold-banner">
+                  <strong>Sold out:</strong> ${soldSizesList.map(formatSizeLabel).join(", ")}
+                </div>
+              ` : ""}
+            </div>
+            <div class="detail-order-actions">
+              <label for="detailQtyInput" style="display:block; font-size:0.88rem; font-weight:600; margin-bottom:0.45rem; letter-spacing:0.01em;">Order Quantity</label>
+              <div class="detail-order-row">
+                <div class="qty-stepper" id="detailQtyStepper">
+                  <button type="button" class="qty-step-btn" id="detailQtyDec" aria-label="Decrease quantity" ${fullySoldOut ? "disabled" : ""}>−</button>
+                  <input type="number" id="detailQtyInput" class="qty-step-input" min="1" max="99" value="1" ${fullySoldOut ? "disabled" : ""} />
+                  <button type="button" class="qty-step-btn" id="detailQtyInc" aria-label="Increase quantity" ${fullySoldOut ? "disabled" : ""}>+</button>
+                </div>
+                ${fullySoldOut ? '<button type="button" disabled style="flex:1; min-width:160px; max-width:320px">Sold Out</button>' : '<button id="addDetailToCartBtn" type="button" style="flex:1; min-width:160px; max-width:320px">+ Add to Order</button>'}
+              </div>
+              <div id="productDetailMessage" style="margin-top:0.85rem"></div>
+            </div>
           </div>
         </div>
       </article>
       <div id="cartModalRoot"></div><div id="imageViewerRoot"></div>
     </section>`;
 
-  document.getElementById("backToShopBtn")?.addEventListener("click", () => { location.hash = "#/shop"; });
+  document.getElementById("detailClosePillBtn")?.addEventListener("click", () => {
+    location.hash = "#/shop";
+  });
+
+  const detailCopyLinkPillBtn = document.getElementById("detailCopyLinkPillBtn");
+  const detailLinkSymbol = document.getElementById("detailLinkSymbol");
+  if (detailCopyLinkPillBtn) {
+    detailCopyLinkPillBtn.addEventListener("click", async () => {
+      const productUrl = `${window.location.origin}${window.location.pathname}#/product/${encodeURIComponent(product.group_id)}`;
+      const success = await copyToClipboard(productUrl);
+      if (detailLinkSymbol) {
+        detailLinkSymbol.textContent = success ? "✓" : "✓";
+        detailCopyLinkPillBtn.classList.add("copied");
+        detailCopyLinkPillBtn.title = "Copied!";
+        setTimeout(() => {
+          if (detailLinkSymbol) detailLinkSymbol.textContent = "🔗";
+          detailCopyLinkPillBtn.classList.remove("copied");
+          detailCopyLinkPillBtn.title = "Copy product link";
+        }, 1800);
+      }
+    });
+  }
 
   let currentIndex = 0;
   let touchStartX = null;
@@ -1364,14 +1483,29 @@ function renderProductDetails(productId) {
     touchStartX = null;
   }, { passive:true });
 
-  const enlarge = () => { if (imageUrls.length) openImageViewer(imageUrls, currentIndex, cleanTitle); };
-  document.getElementById("detailEnlargeBtn")?.addEventListener("click", (event) => { event.stopPropagation(); enlarge(); });
-  document.getElementById("detailMainImage")?.addEventListener("click", enlarge);
+  const detailQtyInput = document.getElementById("detailQtyInput");
+  document.getElementById("detailQtyDec")?.addEventListener("click", () => {
+    if (detailQtyInput) {
+      const current = Math.max(1, Number(detailQtyInput.value || 1));
+      detailQtyInput.value = String(Math.max(1, current - 1));
+    }
+  });
+  document.getElementById("detailQtyInc")?.addEventListener("click", () => {
+    if (detailQtyInput) {
+      const current = Math.max(1, Number(detailQtyInput.value || 1));
+      detailQtyInput.value = String(Math.min(99, current + 1));
+    }
+  });
+  detailQtyInput?.addEventListener("change", () => {
+    const val = Math.max(1, Math.min(99, Number(detailQtyInput.value || 1)));
+    detailQtyInput.value = String(val);
+  });
 
   document.getElementById("addDetailToCartBtn")?.addEventListener("click", () => {
-    setCartQty(product.group_id, Number(state.cart[product.group_id] || 0) + 1);
+    const qtyToAdd = Math.max(1, Number(detailQtyInput?.value || 1));
+    setCartQty(product.group_id, Number(state.cart[product.group_id] || 0) + qtyToAdd);
     const message = document.getElementById("productDetailMessage");
-    if (message) message.innerHTML = '<p class="notice">Product added to your order.</p>';
+    if (message) message.innerHTML = `<p class="notice">Added ${qtyToAdd} item${qtyToAdd > 1 ? "s" : ""} to your order.</p>`;
     openCartModal();
   });
   updateCartCount();
@@ -1626,22 +1760,46 @@ function renderCartModal() {
     rowsWrap.innerHTML = rows.map((row) => `
       <div class="cart-item">
         <img class="cart-thumb" src="${imageUrl(row.image)}" alt="${escapeHtml(row.title)}" />
-        <div>
+        <div class="cart-item-info">
           <b>${escapeHtml(row.title)}</b>
           <p>${formatMoney(row.price)}</p>
           <p>Total: ${formatMoney(row.line_total)}</p>
         </div>
-        <div>
+        <div class="cart-item-qty-wrap">
           <label for="qty_${escapeHtml(row.group_id)}">Qty</label>
-          <input id="qty_${escapeHtml(row.group_id)}" type="number" min="0" max="99" value="${row.qty}" data-qty-id="${escapeHtml(row.group_id)}" />
+          <div class="qty-stepper">
+            <button type="button" class="qty-step-btn" data-qty-dec="${escapeHtml(row.group_id)}" aria-label="Decrease quantity for ${escapeHtml(row.title)}">−</button>
+            <input id="qty_${escapeHtml(row.group_id)}" class="qty-step-input" type="number" min="0" max="99" value="${row.qty}" data-qty-id="${escapeHtml(row.group_id)}" />
+            <button type="button" class="qty-step-btn" data-qty-inc="${escapeHtml(row.group_id)}" aria-label="Increase quantity for ${escapeHtml(row.title)}">+</button>
+          </div>
         </div>
       </div>
     `).join("");
   }
 
+  rowsWrap.querySelectorAll("[data-qty-dec]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const groupId = btn.getAttribute("data-qty-dec");
+      const current = Number(state.cart[groupId] || 0);
+      setCartQty(groupId, Math.max(0, current - 1));
+      renderCartModal();
+    });
+  });
+
+  rowsWrap.querySelectorAll("[data-qty-inc]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const groupId = btn.getAttribute("data-qty-inc");
+      const current = Number(state.cart[groupId] || 0);
+      setCartQty(groupId, Math.min(99, current + 1));
+      renderCartModal();
+    });
+  });
+
   rowsWrap.querySelectorAll("input[data-qty-id]").forEach((node) => {
     node.addEventListener("change", (event) => {
-      setCartQty(event.target.getAttribute("data-qty-id"), Number(event.target.value || 0));
+      const groupId = event.target.getAttribute("data-qty-id");
+      const val = Math.max(0, Math.min(99, Number(event.target.value || 0)));
+      setCartQty(groupId, val);
       renderCartModal();
     });
   });
@@ -1867,17 +2025,19 @@ function renderStock() {
     app.innerHTML = `
       <section class="panel" style="max-width: 520px; margin: 1rem auto;">
         <h1>Stock login</h1>
+        <div id="stockLoginMessage"></div>
         <div class="field"><label for="stockUser">Username</label><input id="stockUser" type="text" /></div>
         <div class="field"><label for="stockPass">Password</label><input id="stockPass" type="password" /></div>
-        <button id="stockLoginBtn">Login</button>
+        <button id="stockLoginBtn" style="width:100%; min-height:44px;">Login</button>
       </section>
     `;
 
     document.getElementById("stockLoginBtn").addEventListener("click", () => {
       const user = document.getElementById("stockUser").value.trim();
       const pass = document.getElementById("stockPass").value;
+      const msgNode = document.getElementById("stockLoginMessage");
       if (!user || !pass) {
-        alert("Enter username and password");
+        if (msgNode) msgNode.innerHTML = '<p class="notice error">Please enter both username and password.</p>';
         return;
       }
       startStockSession(user);
@@ -1896,7 +2056,11 @@ function renderStock() {
       <article class="panel">
         <div class="stock-action-row">
           <button class="secondary" id="stockBackBtn">Back to shop</button>
-          <button class="secondary" id="stockConvertBtn">Convert Insta Data</button>
+          <button class="secondary" id="stockSyncExcelBtn" title="Fetch raw data directly from product_info/product_catalog.xlsx and update DB table">Fetch Excel & Update DB</button>
+          <label class="button secondary stock-upload-label" style="display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin:0;" title="Select an Excel file from your computer to update DB table">
+            Upload Excel to DB
+            <input type="file" id="stockExcelFileInput" accept=".xlsx,.xls" style="display:none;" />
+          </label>
           <button class="secondary" id="stockLogoutBtn">Logout</button>
         </div>
         <h1>Stock Info Studio</h1>
@@ -1907,7 +2071,7 @@ function renderStock() {
           <div class="metric">Available stock<b>${overview.available}</b></div>
           <div class="metric">Sold out / unavailable<b>${overview.soldOut}</b></div>
         </div>
-        <div id="stockConvertMessage"></div>
+        <div id="stockSyncMessage"></div>
       </article>
 
       <article class="panel">
@@ -1947,30 +2111,68 @@ function renderStock() {
     location.hash = "#/shop";
   });
 
-  const stockConvertBtn = document.getElementById("stockConvertBtn");
-  if (stockConvertBtn) {
-    stockConvertBtn.addEventListener("click", async () => {
-      const messageNode = document.getElementById("stockConvertMessage");
-      stockConvertBtn.disabled = true;
+  const stockSyncExcelBtn = document.getElementById("stockSyncExcelBtn");
+  if (stockSyncExcelBtn) {
+    stockSyncExcelBtn.addEventListener("click", async () => {
+      const messageNode = document.getElementById("stockSyncMessage");
+      stockSyncExcelBtn.disabled = true;
       if (messageNode) {
-        messageNode.innerHTML = '<p class="notice">Converting Instagram data & updating Supabase database...</p>';
+        messageNode.innerHTML = '<p class="notice">Fetching raw data from Excel file and updating database table...</p>';
       }
 
       try {
-        const result = await rebuildCatalogFromInstagram();
+        const result = await syncExcelDataToDatabase({ url: CATALOG_URL });
         if (messageNode) {
           const syncInfo = result.syncedToSupabase
-            ? " All products synced to Supabase DB!"
-            : "";
-          messageNode.innerHTML = `<p class="notice">Catalog updated successfully (${result.count} products).${syncInfo}</p>`;
+            ? " (Synced to Supabase DB table)"
+            : " (Saved to local catalog)";
+          if (result.insertedCount > 0) {
+            messageNode.innerHTML = `<p class="notice">✓ Added ${result.insertedCount} new products. Preserved ${result.skippedCount} existing products in database without changes.${syncInfo}</p>`;
+          } else {
+            messageNode.innerHTML = `<p class="notice">✓ All ${result.skippedCount} products already exist in database. Existing records, prices & details were kept unchanged.${syncInfo}</p>`;
+          }
         }
         renderRoute();
       } catch (error) {
         if (messageNode) {
-          messageNode.innerHTML = `<p class="notice error">Conversion failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+          messageNode.innerHTML = `<p class="notice error">Sync failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
         }
       } finally {
-        stockConvertBtn.disabled = false;
+        stockSyncExcelBtn.disabled = false;
+      }
+    });
+  }
+
+  const stockExcelFileInput = document.getElementById("stockExcelFileInput");
+  if (stockExcelFileInput) {
+    stockExcelFileInput.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const messageNode = document.getElementById("stockSyncMessage");
+      if (messageNode) {
+        messageNode.innerHTML = `<p class="notice">Reading raw data from ${escapeHtml(file.name)} and checking for new products...</p>`;
+      }
+
+      try {
+        const result = await syncExcelDataToDatabase({ file });
+        if (messageNode) {
+          const syncInfo = result.syncedToSupabase
+            ? " (Synced to Supabase DB table)"
+            : " (Saved to local catalog)";
+          if (result.insertedCount > 0) {
+            messageNode.innerHTML = `<p class="notice">✓ Added ${result.insertedCount} new products from ${escapeHtml(file.name)}. Preserved ${result.skippedCount} existing products without overwriting.${syncInfo}</p>`;
+          } else {
+            messageNode.innerHTML = `<p class="notice">✓ All ${result.skippedCount} products from ${escapeHtml(file.name)} already exist in database. Existing records & prices were kept unchanged.${syncInfo}</p>`;
+          }
+        }
+        renderRoute();
+      } catch (error) {
+        if (messageNode) {
+          messageNode.innerHTML = `<p class="notice error">Excel import failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+        }
+      } finally {
+        stockExcelFileInput.value = "";
       }
     });
   }
@@ -2001,50 +2203,31 @@ function renderStockTable(filteredRows) {
     return;
   }
   tableWrap.innerHTML = `
-    <div style="overflow-x:auto; max-height:520px; overflow-y:auto; border:1px solid #e2e2e2; border-radius:10px;">
-      <table style="width:100%; border-collapse:collapse; min-width:760px;">
-        <thead style="position:sticky; top:0; z-index:1; background:#f7f7f7;">
-          <tr>
-            <th style="padding:10px; text-align:center; border-bottom:1px solid #ddd; width:70px;">Select</th>
-            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd; width:90px;">Photo</th>
-            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd;">Product</th>
-            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd;">Price</th>
-            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd;">Sizes</th>
-            <th style="padding:10px; text-align:left; border-bottom:1px solid #ddd;">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${filteredRows.map((item) => {
-            const previewFile = item.primary_image_file || item.image_files[0] || "";
-            const previewUrl = imageUrl(previewFile);
-            const isSelected = item.group_id === state.selectedStockGroupId;
-            const sizes = splitSizes(item.size_mentions).map(formatSizeLabel).join(", ") || "Not set";
-            const status = item.active ? "Active" : "Inactive";
-            const thumbnail = previewUrl
-              ? `<img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(item.title)}" style="width:64px; height:64px; object-fit:cover; border-radius:8px; display:block;" loading="lazy" />`
-              : '<div style="width:64px; height:64px; border-radius:8px; background:#eee; display:grid; place-items:center; font-size:11px; text-align:center;">No image</div>';
-            return `
-              <tr data-stock-row="${escapeHtml(item.group_id)}" style="cursor:pointer; background:${isSelected ? "#eef6ff" : "transparent"};">
-                <td style="padding:10px; text-align:center; border-bottom:1px solid #eee;">
-                  <input type="radio" name="stockProductRadio" value="${escapeHtml(item.group_id)}" ${isSelected ? "checked" : ""} aria-label="Select ${escapeHtml(item.title)}" />
-                </td>
-                <td style="padding:10px; border-bottom:1px solid #eee;">${thumbnail}</td>
-                <td style="padding:10px; border-bottom:1px solid #eee;">
-                  <strong>${escapeHtml(item.title)}</strong>
-                  <div style="font-size:12px; opacity:0.7; margin-top:3px;">${escapeHtml(item.group_id)}</div>
-                </td>
-                <td style="padding:10px; border-bottom:1px solid #eee;">${formatMoney(item.price)}</td>
-                <td style="padding:10px; border-bottom:1px solid #eee;">${escapeHtml(sizes)}</td>
-                <td style="padding:10px; border-bottom:1px solid #eee;">${status}</td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
+    <div class="stock-product-list" role="list">
+      ${filteredRows.map((item) => {
+        const previewFile = item.primary_image_file || item.image_files[0] || "";
+        const previewUrl = imageUrl(previewFile);
+        const isSelected = item.group_id === state.selectedStockGroupId;
+        const thumbnail = previewUrl
+          ? `<img src="${escapeHtml(previewUrl)}" alt="${escapeHtml(item.title)}" class="stock-item-thumb" loading="lazy" />`
+          : '<div class="stock-item-thumb stock-thumb-placeholder">No image</div>';
+        return `
+          <div class="stock-item-row ${isSelected ? "selected" : ""}" data-stock-item="${escapeHtml(item.group_id)}" role="button" tabindex="0" aria-label="Edit ${escapeHtml(item.title)}">
+            ${thumbnail}
+            <div class="stock-item-info">
+              <span class="stock-item-title">${escapeHtml(item.title)}</span>
+            </div>
+            <button type="button" class="button secondary stock-item-edit-btn" data-stock-btn="${escapeHtml(item.group_id)}">
+              ${isSelected ? "✓ Editing" : "Edit"}
+            </button>
+          </div>
+        `;
+      }).join("")}
     </div>
   `;
+
   const selectProduct = (groupId) => {
-    if (!groupId || groupId === state.selectedStockGroupId) {
+    if (!groupId) {
       return;
     }
     state.selectedStockGroupId = groupId;
@@ -2055,19 +2238,25 @@ function renderStockTable(filteredRows) {
       editorPanel.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
-  tableWrap.querySelectorAll('input[name="stockProductRadio"]').forEach((radio) => {
-    radio.addEventListener("change", () => selectProduct(radio.value));
+
+  tableWrap.querySelectorAll("[data-stock-item]").forEach((row) => {
+    row.addEventListener("click", () => {
+      const groupId = row.getAttribute("data-stock-item");
+      selectProduct(groupId);
+    });
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        const groupId = row.getAttribute("data-stock-item");
+        selectProduct(groupId);
+      }
+    });
   });
-  tableWrap.querySelectorAll("tr[data-stock-row]").forEach((row) => {
-    row.addEventListener("click", (event) => {
-      if (event.target instanceof HTMLInputElement && event.target.type === "radio") {
-        return;
-      }
-      const groupId = row.getAttribute("data-stock-row");
-      const radio = row.querySelector('input[type="radio"]');
-      if (radio) {
-        radio.checked = true;
-      }
+
+  tableWrap.querySelectorAll("[data-stock-btn]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const groupId = btn.getAttribute("data-stock-btn");
       selectProduct(groupId);
     });
   });
@@ -2200,8 +2389,8 @@ function renderStockEditor(filteredRows) {
         <p>Sizes from parser: ${escapeHtml(parsed.sizeMentions || "")}</p>
         <p>Sold sizes from parser: ${escapeHtml(parsed.soldSizes || "")}</p>
 
-        <div class="field">
-          <button id="saveStockBtn">Update product</button>
+        <div class="field" style="margin-top: 1rem;">
+          <button id="saveStockBtn" style="width: 100%; min-height: 46px; font-size: 1rem;">Update product</button>
         </div>
         <div id="stockSaveMessage"></div>
       </div>

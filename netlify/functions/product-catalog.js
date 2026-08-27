@@ -122,6 +122,27 @@ function boolFromCell(val, defaultVal = false) {
   return defaultVal;
 }
 
+function computeDefaultPrice(title, description, tags, itemCount) {
+  const text = `${title || ""} ${description || ""} ${tags || ""}`.toLowerCase();
+  if (
+    text.includes("dress") ||
+    text.includes("coord") ||
+    text.includes("co-ord") ||
+    text.includes("set") ||
+    text.includes("maxi") ||
+    text.includes("gown") ||
+    text.includes("anarkali") ||
+    text.includes("kurta") ||
+    text.includes("suit") ||
+    text.includes("jacket") ||
+    text.includes("skirt") ||
+    Number(itemCount || 1) > 2
+  ) {
+    return 39;
+  }
+  return 29;
+}
+
 function normalizeInstagramRowsToCatalog(rows) {
   const groups = new Map();
   rows.forEach((row, index) => {
@@ -180,7 +201,7 @@ function normalizeInstagramRowsToCatalog(rows) {
       permalink: pickFirstValue(first, ["permalink", "post_url", "url"]),
       product_type: pickFirstValue(first, ["product_type", "media_type"]) || "IMAGE",
       product_date: dateRaw ? new Date(dateRaw).toISOString() : new Date().toISOString(),
-      price: Number(pickFirstValue(first, ["price"]) || 0),
+      price: Number(pickFirstValue(first, ["price"])) || computeDefaultPrice(title, description, pickFirstValue(first, ["tags"]) || parsed.tags, imageFiles.length),
       caption_has_sold: boolFromCell(first.caption_has_sold, false),
       item_count: Number(pickFirstValue(first, ["item_count"]) || imageFiles.length || 1),
       active: boolFromCell(first.active, true)
@@ -188,6 +209,66 @@ function normalizeInstagramRowsToCatalog(rows) {
   });
 
   return catalog;
+}
+
+function loadLocalExcelCatalog() {
+  const catalogPath = path.join(process.cwd(), "product_info/product_catalog.xlsx");
+  if (!fs.existsSync(catalogPath)) {
+    return [];
+  }
+  const workbook = XLSX.readFile(catalogPath);
+  const firstSheet = workbook.SheetNames[0];
+  if (!firstSheet) return [];
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: "" });
+
+  return rows.map((row, index) => {
+    const groupId = String(row.group_id || row.parent_media_id || row.record_id || `item-${index}`).trim();
+    const imageFiles = String(row.image_files || "")
+      .split(";")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const primaryImage = String(row.primary_image_file || imageFiles[0] || "").trim();
+
+    const hasPreParsedFields = Boolean(
+      String(row.dress_description || "").trim() ||
+      String(row.size_mentions || "").trim() ||
+      String(row.sold_sizes || "").trim() ||
+      String(row.tags || "").trim()
+    );
+    const parsed = hasPreParsedFields ? null : categorizeDescription(String(row.description || ""));
+
+    let productDate = "";
+    if (row.product_date) {
+      if (typeof row.product_date === "number") {
+        const parsedDate = XLSX.SSF.parse_date_code(row.product_date);
+        if (parsedDate) {
+          productDate = new Date(Date.UTC(parsedDate.y, parsedDate.m - 1, parsedDate.d)).toISOString();
+        }
+      } else {
+        const d = new Date(row.product_date);
+        productDate = Number.isNaN(d.getTime()) ? "" : d.toISOString();
+      }
+    }
+
+    return {
+      group_id: groupId,
+      title: String(row.title || "Untitled product").trim() || "Untitled product",
+      description: String(row.description || ""),
+      dress_description: String(row.dress_description || parsed?.dressDescription || ""),
+      size_mentions: String(row.size_mentions || parsed?.sizeMentions || ""),
+      sold_sizes: String(row.sold_sizes || parsed?.soldSizes || ""),
+      tags: String(row.tags || parsed?.tags || ""),
+      primary_image_file: primaryImage,
+      image_files: imageFiles.join(";"),
+      permalink: String(row.permalink || ""),
+      product_type: String(row.product_type || "IMAGE"),
+      product_date: productDate,
+      price: Number(row.price || 0),
+      caption_has_sold: boolFromCell(row.caption_has_sold, false),
+      item_count: Number(row.item_count || imageFiles.length || 1),
+      active: boolFromCell(row.active, true)
+    };
+  });
 }
 
 exports.handler = async (event) => {
@@ -246,8 +327,9 @@ exports.handler = async (event) => {
     }
   }
 
-  // POST: Sync/Upsert Products into Supabase (e.g. from Convert Insta Data)
-  if (event.httpMethod === "POST") {
+  // POST: Sync/Insert new Products into Supabase (insert-only, preserves existing records)
+  // PUT: Update/Upsert Products into Supabase (explicit edits)
+  if (event.httpMethod === "POST" || event.httpMethod === "PUT") {
     let body;
     try {
       body = JSON.parse(event.body || "{}");
@@ -255,10 +337,12 @@ exports.handler = async (event) => {
       return json(400, { ok: false, error: "Invalid JSON body" });
     }
 
-    let productsToUpsert = [];
+    const isInsertOnly = event.httpMethod === "POST" || body.mode === "insert_only" || body.source === "excel";
+    let incomingProducts = [];
 
-    // If source file is provided (or fallback to default insta file), process Insta excel
-    if (body.source === "instagram") {
+    if (body.source === "excel" || body.source === "catalog") {
+      incomingProducts = loadLocalExcelCatalog();
+    } else if (body.source === "instagram") {
       const instaFilePath = path.join(process.cwd(), "data_from_insta/instagram_media_curatedkadha_20260822_043644.xlsx");
       if (!fs.existsSync(instaFilePath)) {
         return json(404, { ok: false, error: `Instagram source file not found at ${instaFilePath}` });
@@ -266,27 +350,71 @@ exports.handler = async (event) => {
       const workbook = XLSX.readFile(instaFilePath);
       const firstSheet = workbook.SheetNames[0];
       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: "" });
-      productsToUpsert = normalizeInstagramRowsToCatalog(rows);
+      incomingProducts = normalizeInstagramRowsToCatalog(rows);
     } else if (Array.isArray(body.products)) {
-      productsToUpsert = body.products.map(p => ({
+      incomingProducts = body.products.map(p => ({
         ...p,
         image_files: Array.isArray(p.image_files) ? p.image_files.join(";") : String(p.image_files || "")
       }));
     } else {
-      return json(400, { ok: false, error: "Invalid request payload. Provide 'products' array or 'source': 'instagram'." });
+      return json(400, { ok: false, error: "Invalid request payload. Provide 'products' array or 'source': 'excel'." });
     }
 
     try {
-      const { data, error } = await supabase
-        .from("product_info")
-        .upsert(productsToUpsert, { onConflict: "group_id" })
-        .select();
+      if (isInsertOnly) {
+        // Fetch existing group_ids from Supabase so we NEVER edit existing products
+        const { data: existingRows, error: fetchErr } = await supabase
+          .from("product_info")
+          .select("group_id");
 
-      if (error) {
-        return json(500, { ok: false, error: error.message });
+        if (fetchErr) {
+          return json(500, { ok: false, error: fetchErr.message });
+        }
+
+        const existingSet = new Set((existingRows || []).map((r) => String(r.group_id)));
+        const newProducts = incomingProducts.filter((p) => !existingSet.has(String(p.group_id)));
+
+        if (newProducts.length > 0) {
+          const { data, error } = await supabase
+            .from("product_info")
+            .insert(newProducts)
+            .select();
+
+          if (error) {
+            return json(500, { ok: false, error: error.message });
+          }
+
+          return json(200, {
+            ok: true,
+            insertedCount: newProducts.length,
+            skippedCount: incomingProducts.length - newProducts.length,
+            totalExisting: existingSet.size,
+            products: data,
+            message: `Inserted ${newProducts.length} new products. Preserved ${incomingProducts.length - newProducts.length} existing products without modifications.`
+          });
+        } else {
+          return json(200, {
+            ok: true,
+            insertedCount: 0,
+            skippedCount: incomingProducts.length,
+            totalExisting: existingSet.size,
+            products: [],
+            message: "All products already exist in database. Existing products were preserved without modifications."
+          });
+        }
+      } else {
+        // Explicit manual edit (PUT)
+        const { data, error } = await supabase
+          .from("product_info")
+          .upsert(incomingProducts, { onConflict: "group_id" })
+          .select();
+
+        if (error) {
+          return json(500, { ok: false, error: error.message });
+        }
+
+        return json(200, { ok: true, count: data.length, products: data });
       }
-
-      return json(200, { ok: true, count: data.length, products: data });
     } catch (err) {
       return json(500, { ok: false, error: err.message });
     }

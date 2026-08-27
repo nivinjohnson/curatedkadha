@@ -1,0 +1,6 @@
+{
+  "name": "Curated Kadha",
+  "description": "Wholesale printed pattern and dress catalogue with stock management and order placement",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -35,11 +35,11 @@ In your Netlify Project Dashboard:
   - The Netlify function queries Supabase `product_info` table and returns JSON.
   - If Supabase is unreachable or during local offline dev, `app.js` gracefully falls back to reading `product_info/product_catalog.xlsx`.
 
-- **Converting Instagram Data**:
-  - Clicking **"Convert Insta Data"** parses the Instagram Excel file.
-  - It pushes the converted products directly to Supabase via `POST /api/product-catalog` (upserting into `product_info`).
+- **Fetching & Syncing Excel Data to Database (Non-Destructive)**:
+  - Clicking **"Fetch Excel & Update DB"** reads the product records directly from `product_info/product_catalog.xlsx`.
+  - Clicking **"Upload Excel to DB"** allows selecting any custom `.xlsx` spreadsheet directly from your computer.
+  - **Preserves Existing Products**: Uploads/syncs operate in **insert-only** mode. Any products that already exist in the database (matching `group_id`) are preserved without modifications (keeping their current pricing, descriptions, active status, and custom stock edits intact). Only new products are inserted into `public.product_info`.
   - **No reload needed**: `app.js` updates state instantly and re-renders the UI automatically.
-  - The "Reload catalog" button has been cleanly removed since Supabase handles live data.
 
 ---
 

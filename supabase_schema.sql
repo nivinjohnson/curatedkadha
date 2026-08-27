@@ -37,3 +37,15 @@ CREATE POLICY "Allow public read access"
 
 -- 4. Policy: Allow insert/update/delete for service role / API functions
 -- Note: Service Role keys bypass RLS automatically in Netlify functions.
+
+-- 5. Migration: Update existing product prices in database table to 29 or 39
+-- (Dresses, coordinates, sets, maxis, gowns set to $39; tops, crops, shirts, and singles set to $29)
+UPDATE public.product_info
+SET price = CASE
+  WHEN (
+    LOWER(COALESCE(title, '') || ' ' || COALESCE(description, '') || ' ' || COALESCE(tags, '')) ~* '(dress|coord|co-ord|set|suit|maxi|gown|anarkali|kurta|jacket|skirt)'
+    OR COALESCE(item_count, 1) > 2
+  ) THEN 39.00
+  ELSE 29.00
+END;
+

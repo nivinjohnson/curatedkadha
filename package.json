@@ -1,10 +1,17 @@
 {
-  "name": "curated-kadha-netlify-functions",
+  "name": "curated-kadha",
   "private": true,
   "version": "1.0.0",
-  "description": "Netlify functions for Curated Kadha",
+  "description": "Curated Kadha Web Application",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "true",
+    "start": "node server.js"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "nodemailer": "^6.9.15",
     "xlsx": "^0.18.5"
   }

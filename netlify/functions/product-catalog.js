@@ -404,3 +404,5 @@ exports.handler = async (event) => {
 
   return json(405, { ok: false, error: "Method not allowed" });
 };
+
+// End of product-catalog.js

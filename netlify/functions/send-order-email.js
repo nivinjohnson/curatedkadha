@@ -101,7 +101,7 @@ function buildOrderEmailHtml(payload, toEmail) {
     '<div style="font-size:20px;font-weight:700;color:#20150b;margin-bottom:10px;">06-0301-0600835-01</div>',
     '<p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#5f4836;"><strong>Reference:</strong> Your Name</p>',
     '<p style="margin:0;font-size:14px;line-height:1.6;color:#5f4836;">Once payment is received, we will begin processing and shipping your order.</p>',
-    '<p style="margin:10px 0 0;font-size:14px;line-height:1.6;color:#5f4836;">If you need to get in touch, please contact <a href="mailto:curatedkadha@gmail.com" style="color:#8b6f4e;font-weight:600;text-decoration:none;">curatedkadha@gmail.com</a> or message <strong>@curatedkadha</strong> on Instagram.</p>',
+    '<p style="margin:10px 0 0;font-size:14px;line-height:1.6;color:#5f4836;">If you need to get in touch, please contact us via mail or message <strong>@curatedkadha</strong> on Instagram.</p>',
     '</div>',
     "</td>",
     "</tr>",

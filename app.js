@@ -280,13 +280,16 @@ function loadCatalogCache() {
     return [];
   }
 
-  return payload.products.map((product) => {
-    const parsed = categorizeDescription(product.description || product.dress_description || "");
-    const parsedMentions = splitSizes(parsed.sizeMentions);
-    const parsedSold = splitSizes(parsed.soldSizes);
-    if (parsedMentions.length === 0) return product;
-    return { ...product, size_mentions: parsedMentions.join(";"), sold_sizes: parsedSold.join(";") };
-  });
+  return payload.products.map((product) => ({
+    ...product,
+    image_files: Array.isArray(product.image_files)
+      ? product.image_files
+      : parseImageFiles(product.image_files),
+    // Preserve the latest values saved in the database/cache. Do not
+    // overwrite stock fields by re-parsing old description text.
+    size_mentions: String(product.size_mentions || ""),
+    sold_sizes: String(product.sold_sizes || "")
+  }));
 }
 
 function saveCatalogCache(products) {
@@ -1295,11 +1298,19 @@ function renderProductDetails(productId) {
   }
   const imageUrls = Array.from(new Set(imageFiles.map(imageUrl).filter(Boolean)));
   const parsedProductText = categorizeDescription(product.description || product.dress_description || "");
+  const databaseMentions = splitSizes(product.size_mentions);
+  const databaseSold = splitSizes(product.sold_sizes);
   const parsedMentions = splitSizes(parsedProductText.sizeMentions);
   const parsedSold = splitSizes(parsedProductText.soldSizes);
-  const effectiveMentions = parsedMentions.length ? parsedMentions : splitSizes(product.size_mentions);
-  const effectiveSold = parsedSold.length ? parsedSold : splitSizes(product.sold_sizes);
-  const mentionedSizes = new Set(effectiveMentions);
+
+  // Prefer the latest database stock fields. Description parsing is only
+  // a fallback for older products where a database field is genuinely absent.
+  const effectiveMentions = databaseMentions.length > 0
+    ? databaseMentions
+    : parsedMentions;
+  const effectiveSold = product.sold_sizes !== undefined && product.sold_sizes !== null
+    ? databaseSold
+    : parsedSold;
   const soldSizes = new Set(effectiveSold);
 
   const allSizesSet = new Set([...effectiveMentions, ...effectiveSold]);
@@ -2444,13 +2455,37 @@ function renderStockEditor(filteredRows) {
   `;
 
 
+  // A size cannot be both available and sold. Selecting one state clears the other.
+  document.querySelectorAll("input[data-se-available]").forEach((availableInput) => {
+    availableInput.addEventListener("change", () => {
+      if (!availableInput.checked) return;
+      const size = availableInput.getAttribute("data-se-available");
+      const soldInput = document.querySelector(`input[data-se-sold="${cssEscape(size)}"]`);
+      if (soldInput) soldInput.checked = false;
+    });
+  });
+
+  document.querySelectorAll("input[data-se-sold]").forEach((soldInput) => {
+    soldInput.addEventListener("change", () => {
+      if (!soldInput.checked) return;
+      const size = soldInput.getAttribute("data-se-sold");
+      const availableInput = document.querySelector(`input[data-se-available="${cssEscape(size)}"]`);
+      if (availableInput) availableInput.checked = false;
+    });
+  });
+
   document.getElementById("saveStockBtn").addEventListener("click", async () => {
     const description = document.getElementById("seDescription").value;
     const availableSizesSelected = Array.from(document.querySelectorAll("input[data-se-available]:checked")).map((node) => node.getAttribute("data-se-available"));
     const soldSizesSelected = Array.from(document.querySelectorAll("input[data-se-sold]:checked")).map((node) => node.getAttribute("data-se-sold"));
 
-    const orderedMentions = SIZE_ORDER.filter((size) => availableSizesSelected.includes(size) || soldSizesSelected.includes(size));
-    const orderedSold = SIZE_ORDER.filter((size) => soldSizesSelected.includes(size));
+    // Sold takes priority if a size somehow appears in both selections.
+    const uniqueSoldSizes = new Set(soldSizesSelected);
+    const cleanAvailableSizes = availableSizesSelected.filter((size) => !uniqueSoldSizes.has(size));
+    const orderedMentions = SIZE_ORDER.filter((size) =>
+      cleanAvailableSizes.includes(size) || uniqueSoldSizes.has(size)
+    );
+    const orderedSold = SIZE_ORDER.filter((size) => uniqueSoldSizes.has(size));
 
     const patch = {
       description,

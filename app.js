@@ -424,6 +424,19 @@ function normalizeDate(raw) {
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
+function toDatabaseTimestamp(value) {
+  if (value === null || value === undefined || value === "" || value === 0) {
+    return null;
+  }
+
+  const numericValue = typeof value === "number" ? value : Number(value);
+  const date = Number.isFinite(numericValue) && String(value).trim() !== ""
+    ? new Date(numericValue)
+    : new Date(value);
+
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 function categorizeDescription(description) {
   const text = String(description || "").trim();
   const lines = text
@@ -619,6 +632,8 @@ async function syncExcelDataToDatabase(options = {}) {
   // Format new products with joined image_files for database table insertion
   const payloadProducts = (newOnlyProducts.length > 0 ? newOnlyProducts : incomingProducts).map((item) => ({
     ...item,
+    // Supabase/PostgreSQL timestamp columns require a valid ISO timestamp or null.
+    product_date: toDatabaseTimestamp(item.product_date),
     image_files: Array.isArray(item.image_files) ? item.image_files.join(";") : String(item.image_files || "")
   }));
 
@@ -668,25 +683,53 @@ async function syncExcelDataToDatabase(options = {}) {
   };
 }
 
-async function saveCatalogToServer(products) {
+async function updateProductInDatabase(groupId, patch) {
+  // Send only editable fields. In particular, do not send product_date,
+  // because editing stock should not alter the original catalogue date.
+  const databasePatch = {
+    description: String(patch.description || ""),
+    size_mentions: String(patch.size_mentions || ""),
+    sold_sizes: String(patch.sold_sizes || ""),
+    item_count: Number(patch.item_count || 0),
+    price: Number(patch.price || 0),
+    active: Boolean(patch.active),
+    caption_has_sold: Boolean(patch.caption_has_sold),
+    primary_image_file: String(patch.primary_image_file || ""),
+    image_files: Array.isArray(patch.image_files)
+      ? patch.image_files.join(";")
+      : String(patch.image_files || "")
+  };
+
   const response = await fetch(CATALOG_API_URL, {
-    method: "PUT",
+    method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      target_file: CATALOG_URL,
-      products: products.map((item) => ({
-        ...item,
-        image_files: Array.isArray(item.image_files) ? item.image_files.join(";") : String(item.image_files || "")
-      }))
+      mode: "update",
+      group_id: String(groupId),
+      product: databasePatch
     })
   });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Catalog update failed: ${response.status} ${errorText}`);
+
+  const responseText = await response.text();
+  let result;
+
+  try {
+    result = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    result = { error: responseText || "The server returned an invalid response." };
   }
-  return response.json();
+
+  if (!response.ok || result?.ok === false) {
+    throw new Error(
+      result?.error ||
+      result?.message ||
+      `Database update failed with HTTP ${response.status}.`
+    );
+  }
+
+  return result;
 }
 
 async function reloadCatalogFromFile(button, messageNode) {
@@ -836,7 +879,7 @@ function normalizeInstagramRowsToCatalog(rows) {
       image_files: imageFiles.join(";"),
       permalink: pickFirstValue(first, ["permalink", "post_url", "url"]),
       product_type: pickFirstValue(first, ["product_type", "media_type"]) || "IMAGE",
-      product_date: normalizeDate(productDateRaw).toISOString(),
+      product_date: normalizeDate(productDateRaw),
       price: Number(pickFirstValue(first, ["price"])) || computeDefaultPrice(title, caption, pickFirstValue(first, ["tags"]) || parsed.tags, imageFiles.length),
       caption_has_sold: boolFromCell(first.caption_has_sold, soldSizesSheet ? true : false),
       item_count: Number(pickFirstValue(first, ["item_count"]) || imageFiles.length || 1),
@@ -1327,11 +1370,11 @@ function renderProductDetails(productId) {
       .product-detail-page{max-width:1220px;margin:1rem auto 2rem;padding:0 1.25rem 2.5rem}
       .product-detail-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);gap:clamp(1.75rem,4.5vw,3.5rem);align-items:start}
       .detail-carousel{position:relative;display:grid;place-items:center;min-height:420px;overflow:hidden;border-radius:16px;background:#f5f3f1;touch-action:pan-y}
-      .detail-pill-actions{position:absolute;top:12px;right:12px;z-index:10;display:flex;flex-direction:column;gap:8px}
-      .detail-pill-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid rgba(0,0,0,0.09);border-radius:999px;background:rgba(255,255,255,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#332d27;box-shadow:0 2px 8px rgba(0,0,0,0.12);cursor:pointer;transition:all 0.15s ease}
-      .detail-pill-btn:hover{background:#ffffff;color:#000000;transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,0.18)}
+      .detail-pill-actions{position:absolute;top:20px;right:12px;z-index:10;display:flex;flex-direction:column;gap:8px}
+      .detail-pill-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;min-width:30px;min-height:30px;padding:0;border:0;border-radius:999px;background:rgba(25,19,16,.76);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:pointer;transition:all .15s ease}
+      .detail-pill-btn:hover{background:rgba(25,19,16,.9);color:#fff;transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,.18)}
       .detail-pill-btn:active{transform:scale(0.95)}
-      .detail-pill-btn.copied{background:#eef6eb;color:#284521;border-color:#84a97b}
+      .detail-pill-btn.copied{background:#284521;color:#fff}
       .detail-pill-close-x{font-size:0.78rem;font-weight:700;line-height:1}
       .detail-pill-link-sym{font-size:0.78rem;line-height:1}
       .detail-carousel-image{display:block;width:100%;height:min(68vh,700px);object-fit:contain;user-select:none}
@@ -1340,28 +1383,8 @@ function renderProductDetails(productId) {
       .detail-arrow:hover{transform:translateY(-50%) scale(1.06)}
       .detail-arrow-prev{left:14px}.detail-arrow-next{right:14px}
       .detail-counter{position:absolute;right:14px;bottom:14px;padding:.42rem .72rem;border-radius:999px;background:rgba(25,19,16,.76);color:#fff;font-size:.82rem;font-weight:700}
-      .detail-dots{position:absolute;
-        bottom:50px;
-        left:50%;
-        display:flex;
-        gap:8px;
-        transform:translateX(-50%);
-        z-index:5;}
-      .detail-dot{
-        width:10px;
-        height:10px;
-        min-width:10px;
-        padding:0;
-        border:1px solid rgba(255,255,255,0.9);
-        border-radius:50%;
-        background:rgba(40,30,25,.45);
-        cursor:pointer;
-      }
-
-      .detail-dot.active{
-        background:#fff;
-        transform:scale(1.25);
-      }
+      .detail-dots{position:absolute;bottom:50px;left:50%;display:flex;align-items:center;gap:8px;transform:translateX(-50%);z-index:5}
+      .detail-dot{width:10px;height:10px;min-width:10px;min-height:10px;padding:0;margin:0;flex:0 0 10px;line-height:0;border:1px solid rgba(255,255,255,.9);border-radius:50%;background:rgba(40,30,25,.45);cursor:pointer}.detail-dot.active{background:#fff;transform:scale(1.25)}
       .detail-thumbnails{display:flex;gap:10px;margin-top:14px;padding-bottom:4px;overflow-x:auto}
       .detail-thumb{flex:0 0 auto;padding:2px;border:2px solid transparent;border-radius:10px;background:transparent;cursor:pointer}.detail-thumb.active{border-color:var(--brand,#7b916f)}
       .detail-thumb img{display:block;width:72px;height:72px;border-radius:7px;object-fit:cover}
@@ -1392,27 +1415,15 @@ function renderProductDetails(productId) {
         .product-detail-page .panel{padding:.85rem;border-radius:12px}
         .product-detail-grid{gap:1.15rem}
         .detail-carousel{aspect-ratio:3/4;border-radius:11px}
-        .detail-pill-actions{top:9px;right:9px;gap:7px}
+        .detail-pill-actions{top:16px;right:9px;gap:7px}
         .detail-pill-btn{width:28px;height:28px}
         .detail-pill-close-x{font-size:0.72rem}
         .detail-pill-link-sym{font-size:0.72rem}
         .detail-arrow{width:32px;height:32px;font-size:1rem;box-shadow:0 3px 10px rgba(0,0,0,.18)}
         .detail-arrow-prev{left:6px}.detail-arrow-next{right:6px}
         .detail-counter{right:7px;bottom:8px;padding:.27rem .48rem;font-size:.68rem}
-        .detail-dots{
-          bottom:42px;
-          gap:6px;
-          z-index:10;
-        }
-        .detail-dot{
-          width:7px;
-          height:7px;
-          min-width:7px;
-          min-height:7px !important;
-          padding:0 !important;
-          margin:0;
-          flex:0 0 7px;
-        }
+        .detail-dots{bottom:42px;gap:6px;z-index:10}
+        .detail-dot{width:7px!important;height:7px!important;min-width:7px!important;min-height:7px!important;padding:0!important;margin:0;flex:0 0 7px;line-height:0}
         .detail-thumbnails{gap:6px;scrollbar-width:thin}
         .detail-thumb{padding:1px;border-radius:8px}
         .detail-thumb img{width:49px;height:49px;border-radius:6px}
@@ -1506,8 +1517,6 @@ function renderProductDetails(productId) {
   const previous = () => { if (imageUrls.length > 1) { currentIndex = (currentIndex - 1 + imageUrls.length) % imageUrls.length; paint(); } };
   const next = () => { if (imageUrls.length > 1) { currentIndex = (currentIndex + 1) % imageUrls.length; paint(); } };
 
-  document.getElementById("detailPrevBtn")?.addEventListener("click", previous);
-  document.getElementById("detailNextBtn")?.addEventListener("click", next);
   document.querySelectorAll("[data-detail-dot],[data-detail-thumb]").forEach((node) => {
     node.addEventListener("click", () => { currentIndex = Number(node.dataset.detailDot ?? node.dataset.detailThumb); paint(); });
   });
@@ -2463,10 +2472,10 @@ function renderStockEditor(filteredRows) {
     const previousProducts = state.products;
     const updatedProducts = state.products.map((item) => item.group_id === current.group_id ? { ...item, ...patch } : item);
     saveButton.disabled = true;
-    saveButton.textContent = "Updating Excel...";
-    messageNode.innerHTML = '<p class="notice">Updating product_info/product_catalog.xlsx...</p>';
+    saveButton.textContent = "Updating product...";
+    messageNode.innerHTML = '<p class="notice">Updating product in database...</p>';
     try {
-      await saveCatalogToServer(updatedProducts);
+      await updateProductInDatabase(current.group_id, patch);
       state.products = updatedProducts;
       state.stockEdits = {};
       localStorage.removeItem(EDITS_KEY);
@@ -2474,13 +2483,13 @@ function renderStockEditor(filteredRows) {
       renderStock();
       const refreshedMessage = document.getElementById("stockSaveMessage");
       if (refreshedMessage) {
-        refreshedMessage.innerHTML = '<p class="notice">Product updated successfully in product_info/product_catalog.xlsx.</p>';
+        refreshedMessage.innerHTML = '<p class="notice">Product updated successfully in the database.</p>';
       }
     } catch (error) {
       state.products = previousProducts;
       saveButton.disabled = false;
       saveButton.textContent = "Update product";
-      messageNode.innerHTML = `<p class="notice error">Could not update the Excel file: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+      messageNode.innerHTML = `<p class="notice error">Could not update the product: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
     }
   });
 }

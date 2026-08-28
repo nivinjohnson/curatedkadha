@@ -380,7 +380,7 @@ function loadCatalogCache() {
     return [];
   }
 
-  return payload.products.map((product) => {
+  return payload.products.map(normalizeCatalogProduct).map((product) => {
     const parsed = categorizeDescription(product.description || product.dress_description || "");
     const parsedMentions = splitSizes(parsed.sizeMentions);
     const parsedSold = splitSizes(parsed.soldSizes);
@@ -615,7 +615,7 @@ async function loadCatalog(options = {}) {
     if (apiRes.ok) {
       const result = await apiRes.json();
       if (result.ok && Array.isArray(result.products) && result.products.length > 0) {
-        return result.products;
+        return result.products.map(normalizeCatalogProduct);
       }
     }
   } catch (err) {
@@ -859,6 +859,26 @@ function parseImageFiles(value) {
     .split(";")
     .map((part) => part.trim())
     .filter(Boolean);
+}
+function normalizeCatalogProduct(product) {
+  const normalized = { ...product };
+  normalized.group_id = String(normalized.group_id || "").trim();
+  normalized.image_files = Array.isArray(normalized.image_files)
+    ? normalized.image_files.filter(Boolean)
+    : parseImageFiles(normalized.image_files);
+  normalized.active = boolFromCell(normalized.active, true);
+  normalized.caption_has_sold = boolFromCell(normalized.caption_has_sold, false);
+  normalized.size_mentions = splitSizes(normalized.size_mentions).join(";");
+  normalized.sold_sizes = splitSizes(normalized.sold_sizes).join(";");
+  return normalized;
+}
+function isProductSoldOut(item) {
+  if (!item || !boolFromCell(item.active, true)) return true;
+  if (boolFromCell(item.caption_has_sold, false)) return true;
+  const mentioned = splitSizes(item.size_mentions);
+  if (mentioned.length === 0) return false;
+  const sold = new Set(splitSizes(item.sold_sizes));
+  return mentioned.every((size) => sold.has(size));
 }
 
 function computeDefaultPrice(title, description, tags, itemCount) {
@@ -1197,9 +1217,9 @@ function filterProducts() {
   }
 
   if (state.filters.stockFilter === "available") {
-    result = result.filter((item) => !Boolean(item.caption_has_sold));
+    result = result.filter((item) => !isProductSoldOut(item));
   } else if (state.filters.stockFilter === "sold") {
-    result = result.filter((item) => Boolean(item.caption_has_sold));
+    result = result.filter((item) => isProductSoldOut(item));
   }
 
   const byDate = (item) => Number(item.product_date || 0);
@@ -1326,7 +1346,7 @@ function renderProductCard(item) {
   const images = item.image_files.length > 0 ? item.image_files : [""];
   const firstImage = imageUrl(images[0]);
   const sizeText = splitSizes(item.size_mentions).slice(0, 1).map(formatSizeLabel).join(" ");
-  const isSold = Boolean(item.caption_has_sold);
+  const isSold = isProductSoldOut(item);
   const dots = images.length > 1
     ? `<div class="card-dots">${images.map((_, idx) => `<span class="card-dot ${idx === 0 ? "active" : ""}" data-dot="${idx}"></span>`).join("")}</div>`
     : "";
@@ -2430,10 +2450,10 @@ function filterStockRows() {
   const size = String(state.stockFilters.size || "all").toUpperCase();
 
   if (state.stockFilters.stockState === "available") {
-    rows = rows.filter((item) => item.active && (availableSizes(item).length > 0 || !item.caption_has_sold));
+    rows = rows.filter((item) => !isProductSoldOut(item));
   }
   if (state.stockFilters.stockState === "sold") {
-    rows = rows.filter((item) => !(item.active && (availableSizes(item).length > 0 || !item.caption_has_sold)));
+    rows = rows.filter((item) => isProductSoldOut(item));
   }
 
   if (state.stockFilters.activeState === "active") {
@@ -2546,7 +2566,7 @@ function renderStockEditor(filteredRows) {
       item_count: Number(document.getElementById("seItemCount").value || 0),
       price: Number(document.getElementById("sePrice").value || 0),
       active: document.getElementById("seActive").checked,
-      caption_has_sold: document.getElementById("seCaptionSold").checked || orderedSold.length > 0,
+      caption_has_sold: document.getElementById("seCaptionSold").checked,
       primary_image_file: document.getElementById("sePrimary").value.trim(),
       image_files: document.getElementById("seImages").value.split(";").map((part) => part.trim()).filter(Boolean)
     };
@@ -2560,7 +2580,7 @@ function renderStockEditor(filteredRows) {
     messageNode.innerHTML = '<p class="notice">Updating product_info/product_catalog.xlsx...</p>';
     try {
       await saveCatalogToServer(updatedProducts);
-      state.products = updatedProducts;
+      state.products = updatedProducts.map(normalizeCatalogProduct);
       state.stockEdits = {};
       localStorage.removeItem(EDITS_KEY);
       saveCatalogCache(state.products);

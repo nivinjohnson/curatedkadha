@@ -40,11 +40,13 @@ function buildOrderEmailHtml(payload, toEmail) {
 
   const orderId = escapeHtml(payload.order_id || "");
     const createdUtc = new Date(payload.created_utc).toLocaleString("en-NZ", {
+    timeZone: "Pacific/Auckland",
     day: "numeric",
     month: "long",
     year: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    hour12: true
     });
   const customerName = escapeHtml(payload.customer_name || "");
   const customerPhone = escapeHtml(payload.customer_phone || "");
@@ -69,7 +71,7 @@ function buildOrderEmailHtml(payload, toEmail) {
     '<td style="padding:20px 24px 0;">',
     '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #efe3d5;border-radius:12px;background:#fffaf4;">',
     `<tr><td style="padding:14px 16px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Order ID:</strong> ${orderId}</td></tr>`,
-    `<tr><td style="padding:0 16px 14px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Placed At (UTC):</strong> ${createdUtc}</td></tr>`,
+    `<tr><td style="padding:0 16px 14px;font-size:14px;color:#5f4836;"><strong style="color:#2a2017;">Placed At:</strong> ${createdUtc}</td></tr>`,
     "</table>",
     "</td>",
     "</tr>",

@@ -196,13 +196,30 @@ function installWideScreenBannerStyles() {
       padding: 0.9rem 0;
       border-top: 1px solid var(--line);
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
-      gap: 0.6rem;
-      flex-wrap: nowrap;
+      gap: 0.4rem;
       text-align: center;
       color: #f5f2eb;
       text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    }
+    .footer-social-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      flex-wrap: nowrap;
+    }
+    .footer-email-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .footer-copyright {
+      font-size: 0.82rem;
+      opacity: 0.85;
+      text-align: center;
     }
     .about-footer a,
     .about-footer #footerLoginBtn {
@@ -232,8 +249,11 @@ function installWideScreenBannerStyles() {
     }
     @media (max-width: 700px) {
       .about-footer {
-        gap: 0.4rem;
+        gap: 0.35rem;
         font-size: 0.8rem;
+      }
+      .footer-social-row {
+        gap: 0.45rem;
       }
       .about-footer a,
       .about-footer #footerLoginBtn {
@@ -1152,18 +1172,22 @@ function renderShop() {
         </article>
         <!-- Removed duplicate closing article tag -->
         <footer class="about-footer">
-          <div class="footer-line">
+          <div class="footer-social-row">
             <a href="https://www.instagram.com/curatedkadha/" target="_blank" rel="noopener noreferrer">
               📷 @curatedkadha
             </a>
             <span class="footer-separator">|</span>
             <a href="https://www.facebook.com/share/1HZqjVJfEM/?mibextid=wwXIfr" target="_blank" rel="noopener noreferrer">
-              📘 Curated Kadha
+              ⓕ Curated Kadha
             </a>
-            <span class="footer-separator">|</span>
-            <a href="mailto:info@curatedkadha.com">
-              ✉️ info@curatedkadha.com
+          </div>
+          <div class="footer-email-row">
+            <a id="footerEmailLink" href="#">
+              ✉️ <span id="footerEmailText"></span>
             </a>
+          </div>
+          <div class="footer-copyright">
+            © 2026 Curated Kadha
           </div>
         </footer>
       </section>
@@ -1214,6 +1238,16 @@ function bindShopFilterHandlers() {
     chelsiiLoginBtn.addEventListener("click", () => {
       location.hash = "#/stock";
     });
+  }
+
+  const footerEmailText = document.getElementById("footerEmailText");
+  const footerEmailLink = document.getElementById("footerEmailLink");
+  if (footerEmailText && footerEmailLink) {
+    const user = "curatedkadha";
+    const domain = "gmail.com";
+    const fullEmail = `${user}@${domain}`;
+    footerEmailText.textContent = fullEmail;
+    footerEmailLink.href = `mailto:${fullEmail}`;
   }
 
   const shopNavCart = document.getElementById("shopNavCartBtn");
@@ -2421,6 +2455,7 @@ function renderStock() {
         <div class="chip-row" style="margin-top: 1.25rem; border-bottom: 1px solid var(--line); padding-bottom: 0.5rem;">
           <button type="button" class="chip ${state.stockTab === "products" ? "active" : ""}" id="tabProductsBtn">📦 Products Catalog</button>
           <button type="button" class="chip ${state.stockTab === "orders" ? "active" : ""}" id="tabOrdersBtn">🛍️ Orders Received</button>
+          <button type="button" class="chip ${state.stockTab === "customers" ? "active" : ""}" id="tabCustomersBtn">👥 Customer Details</button>
         </div>
       </article>
 
@@ -2448,8 +2483,21 @@ function renderStock() {
     });
   }
 
+  const tabCustomersBtn = document.getElementById("tabCustomersBtn");
+  if (tabCustomersBtn) {
+    tabCustomersBtn.addEventListener("click", () => {
+      state.stockTab = "customers";
+      renderStock();
+    });
+  }
+
   if (state.stockTab === "orders") {
     renderOrdersTab();
+    return;
+  }
+
+  if (state.stockTab === "customers") {
+    renderCustomersTab();
     return;
   }
 
@@ -2633,17 +2681,17 @@ async function renderOrdersTab() {
   }
 
   container.innerHTML = `
-    <div style="overflow-x:auto; margin-bottom:1.5rem;">
-      <table style="width:100%; border-collapse:collapse; font-size:0.88rem; text-align:left;">
+    <div class="orders-table-wrap" style="overflow-x:auto; margin-bottom:1.5rem; border:1px solid var(--line); border-radius:10px; background:#ffffff;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.88rem; text-align:left; min-width:650px;">
         <thead>
           <tr style="background:#f4f0ea; border-bottom:2px solid var(--line);">
-            <th style="padding:0.6rem 0.75rem;">Order ID</th>
-            <th style="padding:0.6rem 0.75rem;">Date</th>
-            <th style="padding:0.6rem 0.75rem;">Customer</th>
-            <th style="padding:0.6rem 0.75rem;">Items</th>
-            <th style="padding:0.6rem 0.75rem;">Total</th>
-            <th style="padding:0.6rem 0.75rem;">Status</th>
-            <th style="padding:0.6rem 0.75rem;">Action</th>
+            <th style="padding:0.75rem 0.85rem;">Order ID</th>
+            <th style="padding:0.75rem 0.85rem;">Date</th>
+            <th style="padding:0.75rem 0.85rem;">Customer</th>
+            <th style="padding:0.75rem 0.85rem;">Items</th>
+            <th style="padding:0.75rem 0.85rem;">Total</th>
+            <th style="padding:0.75rem 0.85rem;">Status</th>
+            <th style="padding:0.75rem 0.85rem;">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -2659,21 +2707,21 @@ async function renderOrdersTab() {
 
             return `
               <tr style="border-bottom:1px solid #eee;">
-                <td style="padding:0.6rem 0.75rem; font-weight:700;">#${escapeHtml(order.order_id)}</td>
-                <td style="padding:0.6rem 0.75rem; color:#666;">${escapeHtml(orderDate)}</td>
-                <td style="padding:0.6rem 0.75rem;">
-                  <strong>${escapeHtml(order.customer_name)}</strong><br/>
-                  <small style="color:#777;">${escapeHtml(order.customer_phone)}</small>
+                <td style="padding:0.75rem 0.85rem; font-weight:700;">#${escapeHtml(order.order_id)}</td>
+                <td style="padding:0.75rem 0.85rem; color:#666; white-space:nowrap;">${escapeHtml(orderDate)}</td>
+                <td style="padding:0.75rem 0.85rem;">
+                  <strong style="display:block;">${escapeHtml(order.customer_name)}</strong>
+                  <small style="color:#777; display:block; margin-top:2px;">${escapeHtml(order.customer_phone)}</small>
                 </td>
-                <td style="padding:0.6rem 0.75rem; max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(itemSummary)}">${escapeHtml(itemSummary)}</td>
-                <td style="padding:0.6rem 0.75rem; font-weight:700;">${formatMoney(order.total)}</td>
-                <td style="padding:0.6rem 0.75rem;">
-                  <span style="display:inline-block; padding:0.2rem 0.55rem; border-radius:999px; font-size:0.78rem; font-weight:700; ${isCompleted ? "background:#e3f2fd; color:#0d47a1;" : "background:#fff3e0; color:#e65100;"}">
+                <td style="padding:0.75rem 0.85rem; max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(itemSummary)}">${escapeHtml(itemSummary)}</td>
+                <td style="padding:0.75rem 0.85rem; font-weight:700; white-space:nowrap;">${formatMoney(order.total)}</td>
+                <td style="padding:0.75rem 0.85rem;">
+                  <span style="display:inline-block; padding:0.25rem 0.6rem; border-radius:999px; font-size:0.78rem; font-weight:700; ${isCompleted ? "background:#e3f2fd; color:#0d47a1;" : "background:#fff3e0; color:#e65100;"}">
                     ${isCompleted ? "Completed" : "Pending"}
                   </span>
                 </td>
-                <td style="padding:0.6rem 0.75rem;">
-                  <select class="order-status-select" data-order-id="${escapeHtml(order.order_id)}" style="padding:0.25rem 0.5rem; font-size:0.82rem; border-radius:6px; min-height:auto;">
+                <td style="padding:0.75rem 0.85rem;">
+                  <select class="order-status-select" data-order-id="${escapeHtml(order.order_id)}" style="padding:0.35rem 0.5rem; font-size:0.82rem; border-radius:6px; min-height:auto; width:auto;">
                     <option value="pending" ${!isCompleted ? "selected" : ""}>Pending</option>
                     <option value="completed" ${isCompleted ? "selected" : ""}>Completed</option>
                   </select>
@@ -2685,8 +2733,8 @@ async function renderOrdersTab() {
       </table>
     </div>
 
-    <h3 style="margin-top:1.5rem; margin-bottom:1rem;">Order Details Cards</h3>
-    <div style="display:flex; flex-direction:column; gap:1.2rem;">
+    <h3 style="margin-top:1.75rem; margin-bottom:1rem; font-size:1.15rem;">Order Details Cards</h3>
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
       ${filteredOrders.map((order) => {
         const isCompleted = String(order.status || "pending").toLowerCase() === "completed";
         const orderDate = new Date(order.created_at || order.created_utc || Date.now()).toLocaleString("en-NZ", {
@@ -2701,48 +2749,48 @@ async function renderOrdersTab() {
         const itemsArr = Array.isArray(order.items) ? order.items : [];
 
         return `
-          <div style="border:1px solid var(--line); border-radius:10px; padding:1.2rem; background:#ffffff; box-shadow:0 2px 6px rgba(0,0,0,0.04);">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:0.5rem; border-bottom:1px solid #eee; padding-bottom:0.75rem; margin-bottom:0.85rem;">
+          <div class="order-card-panel" style="border:1px solid var(--line); border-radius:12px; padding:1.2rem; background:#ffffff; box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; border-bottom:1px solid #eee; padding-bottom:0.85rem; margin-bottom:1rem;">
               <div>
-                <strong style="font-size:1.1rem; color:var(--brand);">Order #${escapeHtml(order.order_id)}</strong>
-                <span style="font-size:0.82rem; color:#777; margin-left:0.5rem;">${escapeHtml(orderDate)}</span>
+                <strong style="font-size:1.15rem; color:var(--brand); display:inline-block; margin-right:0.4rem;">Order #${escapeHtml(order.order_id)}</strong>
+                <span style="font-size:0.82rem; color:#777; display:inline-block;">${escapeHtml(orderDate)}</span>
               </div>
-              <div style="display:flex; align-items:center; gap:0.8rem;">
-                <select class="order-status-select" data-order-id="${escapeHtml(order.order_id)}" style="padding:0.3rem 0.6rem; font-size:0.85rem; border-radius:6px; min-height:auto;">
+              <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                <select class="order-status-select" data-order-id="${escapeHtml(order.order_id)}" style="padding:0.35rem 0.65rem; font-size:0.85rem; border-radius:6px; min-height:auto;">
                   <option value="pending" ${!isCompleted ? "selected" : ""}>⏳ Pending</option>
                   <option value="completed" ${isCompleted ? "selected" : ""}>✅ Completed</option>
                 </select>
-                <div style="font-size:1.1rem; font-weight:700; color:#1c140d;">
+                <div style="font-size:1.15rem; font-weight:700; color:#1c140d;">
                   ${formatMoney(order.total)}
                 </div>
               </div>
             </div>
 
-            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:1rem; margin-bottom:1rem; background:#fbf9f6; padding:0.85rem; border-radius:8px; border:1px solid #efe8e0;">
+            <div class="order-card-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1rem; margin-bottom:1.1rem; background:#fbf9f6; padding:1rem; border-radius:9px; border:1px solid #efe8e0;">
               <div>
-                <strong style="font-size:0.85rem; text-transform:uppercase; color:#6e5440; display:block; margin-bottom:0.3rem;">Customer Info</strong>
-                <div style="font-weight:600; color:#2a2017;">👤 ${escapeHtml(order.customer_name)}</div>
-                <div style="font-size:0.88rem; color:#4a3729; margin-top:0.2rem;">✉️ <a href="mailto:${escapeHtml(order.customer_email)}" style="color:inherit;">${escapeHtml(order.customer_email)}</a></div>
-                <div style="font-size:0.88rem; color:#4a3729; margin-top:0.2rem;">📞 ${escapeHtml(order.customer_phone)}</div>
+                <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Customer Info</strong>
+                <div style="font-weight:600; color:#2a2017; font-size:0.95rem;">👤 ${escapeHtml(order.customer_name)}</div>
+                <div style="font-size:0.88rem; color:#4a3729; margin-top:0.3rem; word-break:break-all;">✉️ <a href="mailto:${escapeHtml(order.customer_email)}" style="color:inherit;">${escapeHtml(order.customer_email)}</a></div>
+                <div style="font-size:0.88rem; color:#4a3729; margin-top:0.3rem;">📞 ${escapeHtml(order.customer_phone)}</div>
               </div>
 
               <div>
-                <strong style="font-size:0.85rem; text-transform:uppercase; color:#6e5440; display:block; margin-bottom:0.3rem;">Delivery Address</strong>
-                <div style="font-size:0.88rem; color:#2a2017; line-height:1.4;">📍 ${escapeHtml(order.address)}</div>
-                <div style="font-size:0.85rem; color:var(--brand); margin-top:0.4rem; font-weight:600;">🚚 ${escapeHtml(order.shipping_method || "Standard Shipping")} (${formatMoney(order.shipping_cost || 7)})</div>
+                <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Delivery Address</strong>
+                <div style="font-size:0.88rem; color:#2a2017; line-height:1.45; word-break:break-word;">📍 ${escapeHtml(order.address)}</div>
+                <div style="font-size:0.85rem; color:var(--brand); margin-top:0.5rem; font-weight:600;">🚚 ${escapeHtml(order.shipping_method || "Standard Shipping")} (${formatMoney(order.shipping_cost || 7)})</div>
               </div>
             </div>
 
-            <strong style="font-size:0.85rem; text-transform:uppercase; color:#6e5440; display:block; margin-bottom:0.5rem;">Ordered Items</strong>
-            <div style="display:flex; flex-direction:column; gap:0.5rem;">
+            <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.6rem;">Ordered Items (${itemsArr.length})</strong>
+            <div style="display:flex; flex-direction:column; gap:0.6rem;">
               ${itemsArr.map((item) => `
-                <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9rem; padding:0.4rem 0.6rem; background:#fff; border:1px solid #ece6de; border-radius:6px;">
-                  <div>
-                    <strong>${escapeHtml(item.title || "Item")}</strong>
-                    ${item.size ? `<span style="font-size:0.8rem; background:#f0f4ee; color:#284521; padding:0.1rem 0.4rem; border-radius:4px; font-weight:600; margin-left:0.4rem;">Size: ${escapeHtml(formatSizeLabel(item.size))}</span>` : ""}
-                    <span style="font-size:0.82rem; color:#777; margin-left:0.5rem;">Qty: ${item.qty || 1}</span>
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; font-size:0.9rem; padding:0.55rem 0.75rem; background:#fff; border:1px solid #ece6de; border-radius:7px;">
+                  <div style="display:flex; align-items:center; flex-wrap:wrap; gap:0.4rem; min-width:0;">
+                    <strong style="word-break:break-word;">${escapeHtml(item.title || "Item")}</strong>
+                    ${item.size ? `<span style="font-size:0.78rem; background:#f0f4ee; color:#284521; padding:0.12rem 0.45rem; border-radius:4px; font-weight:600;">Size: ${escapeHtml(formatSizeLabel(item.size))}</span>` : ""}
+                    <span style="font-size:0.82rem; color:#777;">× ${item.qty || 1}</span>
                   </div>
-                  <strong>${formatMoney(item.line_total || item.price || 0)}</strong>
+                  <strong style="margin-left:auto;">${formatMoney(item.line_total || item.price || 0)}</strong>
                 </div>
               `).join("")}
             </div>
@@ -2775,6 +2823,154 @@ async function renderOrdersTab() {
       }
     });
   });
+}
+
+async function renderCustomersTab() {
+  const tabContent = document.getElementById("stockTabContent");
+  if (!tabContent) return;
+
+  tabContent.innerHTML = `
+    <article class="panel">
+      <h2>Customer Details</h2>
+      <p>Summary of customer contact information, delivery addresses, and order history.</p>
+      <div id="customersLoadingMsg"><p class="notice">Loading customers...</p></div>
+      <div id="customersContainer"></div>
+    </article>
+  `;
+
+  if (state.ordersList.length === 0) {
+    try {
+      const res = await fetch(`${CATALOG_API_URL}?type=orders`);
+      if (res.ok) {
+        const data = await res.json();
+        state.ordersList = data.orders || [];
+      }
+    } catch (err) {
+      console.warn("Could not fetch orders for customers tab:", err);
+    }
+  }
+
+  const container = document.getElementById("customersContainer");
+  const loadingMsg = document.getElementById("customersLoadingMsg");
+  if (loadingMsg) loadingMsg.style.display = "none";
+  if (!container) return;
+
+  if (state.ordersList.length === 0) {
+    container.innerHTML = '<p class="notice warning">No customer data available yet.</p>';
+    return;
+  }
+
+  const customerMap = new Map();
+  state.ordersList.forEach((order) => {
+    const key = (order.customer_email || order.customer_name || "unknown").trim().toLowerCase();
+    if (!customerMap.has(key)) {
+      customerMap.set(key, {
+        name: order.customer_name || "Unknown",
+        email: order.customer_email || "",
+        phone: order.customer_phone || "",
+        addresses: new Set(),
+        totalSpent: 0,
+        orders: []
+      });
+    }
+    const c = customerMap.get(key);
+    if (order.address) c.addresses.add(order.address);
+    c.totalSpent += Number(order.total || 0);
+    c.orders.push(order);
+    if (order.customer_name && c.name === "Unknown") c.name = order.customer_name;
+    if (order.customer_phone && !c.phone) c.phone = order.customer_phone;
+  });
+
+  const customers = Array.from(customerMap.values()).map((c) => ({
+    ...c,
+    addressList: Array.from(c.addresses),
+    latestOrderDate: c.orders.reduce((max, o) => {
+      const date = new Date(o.created_at || o.created_utc || 0);
+      return date > max ? date : max;
+    }, new Date(0))
+  }));
+
+  customers.sort((a, b) => b.latestOrderDate - a.latestOrderDate);
+
+  const totalCustomers = customers.length;
+  const totalRevenue = customers.reduce((sum, c) => sum + c.totalSpent, 0);
+
+  container.innerHTML = `
+    <div class="metric-row" style="margin-bottom: 1.25rem;">
+      <div class="metric">Total Customers<b>${totalCustomers}</b></div>
+      <div class="metric">Total Customer Revenue<b>${formatMoney(totalRevenue)}</b></div>
+      <div class="metric">Avg. Spend / Customer<b>${formatMoney(totalCustomers ? totalRevenue / totalCustomers : 0)}</b></div>
+    </div>
+
+    <div class="orders-table-wrap" style="overflow-x:auto; margin-bottom:1.5rem; border:1px solid var(--line); border-radius:10px; background:#ffffff;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.88rem; text-align:left; min-width:650px;">
+        <thead>
+          <tr style="background:#f4f0ea; border-bottom:2px solid var(--line);">
+            <th style="padding:0.75rem 0.85rem;">Customer Name</th>
+            <th style="padding:0.75rem 0.85rem;">Email</th>
+            <th style="padding:0.75rem 0.85rem;">Phone</th>
+            <th style="padding:0.75rem 0.85rem;">Primary Delivery Address</th>
+            <th style="padding:0.75rem 0.85rem;">Orders</th>
+            <th style="padding:0.75rem 0.85rem;">Total Spent</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${customers.map((c) => `
+            <tr style="border-bottom:1px solid #eee;">
+              <td style="padding:0.75rem 0.85rem; font-weight:700;">${escapeHtml(c.name)}</td>
+              <td style="padding:0.75rem 0.85rem;">
+                <a href="mailto:${escapeHtml(c.email)}" style="color:inherit;">${escapeHtml(c.email || "—")}</a>
+              </td>
+              <td style="padding:0.75rem 0.85rem;">${escapeHtml(c.phone || "—")}</td>
+              <td style="padding:0.75rem 0.85rem; max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(c.addressList.join(" | "))}">
+                ${escapeHtml(c.addressList[0] || "—")}
+              </td>
+              <td style="padding:0.75rem 0.85rem; font-weight:700;">${c.orders.length} order${c.orders.length > 1 ? "s" : ""}</td>
+              <td style="padding:0.75rem 0.85rem; font-weight:700; color:var(--brand);">${formatMoney(c.totalSpent)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:1.75rem; margin-bottom:1rem; font-size:1.15rem;">Customer Profiles</h3>
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      ${customers.map((c) => `
+        <div style="border:1px solid var(--line); border-radius:12px; padding:1.2rem; background:#ffffff; box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; border-bottom:1px solid #eee; padding-bottom:0.75rem; margin-bottom:0.85rem;">
+            <div>
+              <strong style="font-size:1.15rem; color:#2a2017;">👤 ${escapeHtml(c.name)}</strong>
+              <span style="font-size:0.82rem; background:#f0f4ee; color:#284521; padding:0.15rem 0.5rem; border-radius:999px; font-weight:600; margin-left:0.5rem;">${c.orders.length} Order${c.orders.length > 1 ? "s" : ""}</span>
+            </div>
+            <div style="font-size:1.15rem; font-weight:700; color:var(--brand);">
+              Total Spent: ${formatMoney(c.totalSpent)}
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1rem; margin-bottom:1rem; background:#fbf9f6; padding:0.85rem; border-radius:8px; border:1px solid #efe8e0;">
+            <div>
+              <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.3rem;">Contact Info</strong>
+              <div style="font-size:0.88rem; color:#4a3729; margin-top:0.2rem; word-break:break-all;">✉️ <a href="mailto:${escapeHtml(c.email)}" style="color:inherit;">${escapeHtml(c.email || "—")}</a></div>
+              <div style="font-size:0.88rem; color:#4a3729; margin-top:0.2rem;">📞 ${escapeHtml(c.phone || "—")}</div>
+            </div>
+            <div>
+              <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.3rem;">Delivery Address(es)</strong>
+              ${c.addressList.map((addr) => `<div style="font-size:0.88rem; color:#2a2017; line-height:1.4; margin-top:0.2rem;">📍 ${escapeHtml(addr)}</div>`).join("")}
+            </div>
+          </div>
+
+          <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.5rem;">Associated Orders</strong>
+          <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
+            ${c.orders.map((o) => `
+              <span style="font-size:0.85rem; background:#fff; border:1px solid #dcd5c9; padding:0.3rem 0.65rem; border-radius:6px; color:#1c140d;">
+                Order #<strong>${escapeHtml(o.order_id)}</strong> (${formatMoney(o.total)}) - <span style="font-weight:600; color:${String(o.status || "pending").toLowerCase() === "completed" ? "#0d47a1" : "#e65100"}">${escapeHtml(o.status || "pending")}</span>
+              </span>
+            `).join("")}
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
 }
 
 function renderProductsTab(filtered) {

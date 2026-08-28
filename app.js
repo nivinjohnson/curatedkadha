@@ -385,6 +385,25 @@ function setActiveNav(path) {
   });
 }
 
+function goHomeTop() {
+  if (location.hash !== "#/shop") {
+    location.hash = "#/shop";
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }, 60);
+    return;
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function syncOverlayBodyLock() {
+  const cartRoot = document.getElementById("cartModalRoot");
+  const viewerRoot = document.getElementById("imageViewerRoot");
+  const hasCartOverlay = Boolean(cartRoot && cartRoot.children.length > 0);
+  const hasViewerOverlay = Boolean(viewerRoot && viewerRoot.children.length > 0);
+  document.body.classList.toggle("modal-open", hasCartOverlay || hasViewerOverlay);
+}
+
 function loadJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -1382,6 +1401,14 @@ function bindShopFilterHandlers() {
     });
   }
 
+  const brandWrapLink = document.querySelector(".brand-wrap");
+  if (brandWrapLink) {
+    brandWrapLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      goHomeTop();
+    });
+  }
+
 }
 
 function initHamburgerMenu() {
@@ -1443,7 +1470,11 @@ function initHamburgerMenu() {
   }
 
   if (navShopBtn) {
-    navShopBtn.onclick = () => toggleMenu(false);
+    navShopBtn.onclick = (e) => {
+      e.preventDefault();
+      toggleMenu(false);
+      goHomeTop();
+    };
   }
 }
 
@@ -2010,6 +2041,7 @@ function initCardCarousel(groupId, images) {
 function openCartModal() {
   state.isCartModalOpen = true;
   renderCartModal();
+  syncOverlayBodyLock();
 }
 
 function closeCartModal() {
@@ -2018,6 +2050,7 @@ function closeCartModal() {
   if (modalRoot) {
     modalRoot.innerHTML = "";
   }
+  syncOverlayBodyLock();
   if (location.hash !== "#/shop") {
     location.hash = "#/shop";
   }
@@ -2043,6 +2076,7 @@ function openImageViewer(images, startIndex, altText) {
       <div class="image-viewer-dots" id="imageViewerDots"></div>
     </section>
   `;
+  syncOverlayBodyLock();
 
   const imageNode = document.getElementById("imageViewerImage");
   const counterNode = document.getElementById("imageViewerCounter");
@@ -2068,6 +2102,7 @@ function openImageViewer(images, startIndex, altText) {
   const closeViewer = () => {
     document.removeEventListener("keydown", onViewerKeydown);
     viewerRoot.innerHTML = "";
+    syncOverlayBodyLock();
   };
 
   const showPrev = () => {

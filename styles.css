@@ -1193,14 +1193,16 @@ button.danger {
   position: fixed;
   inset: 0;
   background: rgba(22, 20, 16, 0.45);
-  z-index: 120;
+  z-index: 200000;
+  animation: overlayFadeIn 0.16s ease;
 }
 
 .image-viewer-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(12, 11, 9, 0.7);
-  z-index: 140;
+  z-index: 200020;
+  animation: overlayFadeIn 0.16s ease;
 }
 
 .image-viewer {
@@ -1208,7 +1210,7 @@ button.danger {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  z-index: 141;
+  z-index: 200021;
   width: min(1020px, calc(100vw - 1.6rem));
   max-height: calc(100vh - 1.6rem);
   padding: 0.7rem;
@@ -1217,6 +1219,7 @@ button.danger {
   border: 1px solid var(--line);
   display: grid;
   gap: 0.6rem;
+  animation: popupRiseIn 0.2s ease;
 }
 
 .image-viewer-toolbar {
@@ -1275,13 +1278,38 @@ button.danger {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  z-index: 121;
+  z-index: 200001;
   width: min(1100px, calc(100vw - 2rem));
   max-height: calc(100vh - 2rem);
   overflow: auto;
   display: grid;
   grid-template-columns: 1fr;
   gap: 0.9rem;
+  animation: popupRiseIn 0.2s ease;
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+@keyframes overlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes popupRiseIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 14px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
 }
 
 .cart-modal.order-only {

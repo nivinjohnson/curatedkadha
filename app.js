@@ -1193,7 +1193,13 @@ function renderProductCard(item) {
   const images = item.image_files.length > 0 ? item.image_files : [""];
   const firstImage = imageUrl(images[0]);
   const sizeText = splitSizes(item.size_mentions).slice(0, 1).map(formatSizeLabel).join(" ");
-  const isSold = Boolean(item.caption_has_sold);
+  const allSizes = splitSizes(item.size_mentions);
+  const soldSizes = splitSizes(item.sold_sizes);
+  // Mark the whole product sold out only when every listed size is sold.
+  const isSold =
+    allSizes.length > 0 &&
+    soldSizes.length > 0 &&
+    allSizes.every((size) => soldSizes.includes(size));
   const dots = images.length > 1
     ? `<div class="card-dots">${images.map((_, idx) => `<span class="card-dot ${idx === 0 ? "active" : ""}" data-dot="${idx}"></span>`).join("")}</div>`
     : "";
@@ -1264,9 +1270,10 @@ function renderProductDetails(productId) {
   const availableSizes = sizes.filter((size) => !soldSizes.has(size));
   const soldSizesList = sizes.filter((size) => soldSizes.has(size));
   const availableSizeCount = availableSizes.length;
+  // Disable ordering only when every listed size is sold.
   const fullySoldOut =
-    Boolean(product.caption_has_sold) ||
-    (sizes.length > 0 && availableSizeCount === 0);
+    sizes.length > 0 &&
+    availableSizeCount === 0;
   const description = String(product.dress_description || product.description || "").trim();
   const cleanTitle = String(product.title || "Untitled product")
     .replace(/^\s*sold\s*out\s*[❌✖✕x-]*\s*/i, "")
@@ -2413,7 +2420,10 @@ function renderStockEditor(filteredRows) {
       item_count: Number(document.getElementById("seItemCount").value || 0),
       price: Number(document.getElementById("sePrice").value || 0),
       active: document.getElementById("seActive").checked,
-      caption_has_sold: document.getElementById("seCaptionSold").checked || orderedSold.length > 0,
+      // Keep the whole-product sold flag true only when all listed sizes are sold.
+      caption_has_sold:
+        orderedMentions.length > 0 &&
+        orderedSold.length === orderedMentions.length,
       primary_image_file: document.getElementById("sePrimary").value.trim(),
       image_files: document.getElementById("seImages").value.split(";").map((part) => part.trim()).filter(Boolean)
     };

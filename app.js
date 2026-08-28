@@ -87,7 +87,7 @@ const state = {
   },
   filters: {
     sizeFilter: [],
-    stockFilter: "all",
+    stockFilter: "available",
     sortBy: "newest"
   },
   stockFilters: {

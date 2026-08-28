@@ -95,6 +95,9 @@ const state = {
     activeState: "all",
     size: "all"
   },
+  stockTab: "products",
+  ordersList: [],
+  shippingMethod: "normal",
   isCartModalOpen: false,
   orderSuccessMessage: "",
   visibleCount: 24,
@@ -1007,17 +1010,20 @@ function availableSizes(item) {
 
 function getCartRows() {
   const rows = [];
-  Object.entries(state.cart).forEach(([groupId, qtyRaw]) => {
+  Object.entries(state.cart).forEach(([cartKey, qtyRaw]) => {
     const qty = Number(qtyRaw || 0);
     if (qty <= 0) {
       return;
     }
+    const [groupId, size] = cartKey.split("::");
     const product = state.products.find((p) => p.group_id === groupId);
     if (!product) {
       return;
     }
     rows.push({
+      cartKey,
       group_id: groupId,
+      size: size || "",
       title: product.title,
       price: product.price,
       qty,
@@ -1050,12 +1056,12 @@ function clearCart() {
   updateCartCount();
 }
 
-function setCartQty(groupId, qty) {
+function setCartQty(cartKey, qty) {
   const value = Math.max(0, Number(qty || 0));
   if (value <= 0) {
-    delete state.cart[groupId];
+    delete state.cart[cartKey];
   } else {
-    state.cart[groupId] = value;
+    state.cart[cartKey] = value;
   }
   saveJson(CART_KEY, state.cart);
   updateCartCount();
@@ -1073,24 +1079,38 @@ function renderShop() {
   app.innerHTML = `
     <section class="shop-layout">
       <div class="shop-toolbar">
+        <details class="shop-filters-parent">
+          <summary class="shop-filters-summary">
+            <span class="filters-title">Filters</span>
+          </summary>
+          <div class="shop-filters-group">
+            <div class="filter-field">
+              <label for="fSize" class="filter-label">Size</label>
+              <select id="fSize" class="shop-filter-select">
+                <option value="all" ${selectedSize === "all" ? "selected" : ""}>All sizes</option>
+                ${SIZE_ORDER.map((size) => `<option value="${size}" ${selectedSize === size ? "selected" : ""}>${formatSizeLabel(size)}</option>`).join("")}
+              </select>
+            </div>
 
-        <select id="fSize" class="shop-filter-select">
-          <option value="all" ${selectedSize === "all" ? "selected" : ""}>All sizes</option>
-          ${SIZE_ORDER.map((size) => `<option value="${size}" ${selectedSize === size ? "selected" : ""}>${formatSizeLabel(size)}</option>`).join("")}
-        </select>
+            <div class="filter-field">
+              <label for="fStock" class="filter-label">Stock</label>
+              <select id="fStock" class="shop-filter-select">
+                <option value="available" ${state.filters.stockFilter === "available" ? "selected" : ""}>In Stock</option>
+                <option value="sold" ${state.filters.stockFilter === "sold" ? "selected" : ""}>Sold Out</option>
+              </select>
+            </div>
 
-        <select id="fStock" class="shop-filter-select">
-          <option value="available" ${state.filters.stockFilter === "available" ? "selected" : ""}>In Stock</option>
-          <option value="sold" ${state.filters.stockFilter === "sold" ? "selected" : ""}>Sold Out</option>
-        </select>
-
-        <select id="fSort" class="shop-filter-select">
-          <option value="newest" ${state.filters.sortBy === "newest" ? "selected" : ""}>Newest</option>
-          <option value="oldest" ${state.filters.sortBy === "oldest" ? "selected" : ""}>Oldest</option>
-          <option value="priceLow" ${state.filters.sortBy === "priceLow" ? "selected" : ""}>Price low to high</option>
-          <option value="priceHigh" ${state.filters.sortBy === "priceHigh" ? "selected" : ""}>Price high to low</option>
-        </select>
-
+            <div class="filter-field">
+              <label for="fSort" class="filter-label">Sort</label>
+              <select id="fSort" class="shop-filter-select">
+                <option value="newest" ${state.filters.sortBy === "newest" ? "selected" : ""}>Newest</option>
+                <option value="oldest" ${state.filters.sortBy === "oldest" ? "selected" : ""}>Oldest</option>
+                <option value="priceLow" ${state.filters.sortBy === "priceLow" ? "selected" : ""}>Price low to high</option>
+                <option value="priceHigh" ${state.filters.sortBy === "priceHigh" ? "selected" : ""}>Price high to low</option>
+              </select>
+            </div>
+          </div>
+        </details>
       </div>
 
       <section class="panel shop-grid-panel">
@@ -1109,7 +1129,7 @@ function renderShop() {
           </div>
           <div class="about-copy">
             <p>Hey there!</p>
-            <p>I'm Chelsii</p>
+            <p>I'm <a href="#/stock" id="chelsiiLoginBtn" style="color:inherit; text-decoration:none; cursor:pointer;">Chelsii</a></p>
             <p>
             Curated Kadha began as a spark of passion, a dream born from my love for meaningful design and the joy of discovering pieces that just feel right.
             </p>
@@ -1134,7 +1154,13 @@ function renderShop() {
               📷 @curatedkadha
             </a>
             <span class="footer-separator">|</span>
-            <a href="#/stock" id="footerLoginBtn">Store Login</a>
+            <a href="https://www.facebook.com/share/1HZqjVJfEM/?mibextid=wwXIfr" target="_blank" rel="noopener noreferrer">
+              📘 Curated Kadha
+            </a>
+            <span class="footer-separator">|</span>
+            <a href="mailto:curatedkadha@gmail.com">
+              ✉️ curatedkadha@gmail.com
+            </a>
           </div>
         </footer>
       </section>
@@ -1180,9 +1206,9 @@ function bindShopFilterHandlers() {
     renderShop();
   });
 
-  const footerLoginBtn = document.getElementById("footerLoginBtn");
-  if (footerLoginBtn) {
-    footerLoginBtn.addEventListener("click", () => {
+  const chelsiiLoginBtn = document.getElementById("chelsiiLoginBtn");
+  if (chelsiiLoginBtn) {
+    chelsiiLoginBtn.addEventListener("click", () => {
       location.hash = "#/stock";
     });
   }
@@ -1284,8 +1310,12 @@ function renderShopGrid() {
         return;
       }
       const groupId = card.getAttribute("data-id");
-      const current = Number(state.cart[groupId] || 0);
-      setCartQty(groupId, current + 1);
+      const product = state.products.find((p) => p.group_id === groupId);
+      const avail = product ? availableSizes(product) : [];
+      const defaultSize = avail.length > 0 ? avail[0] : "";
+      const cartKey = defaultSize ? `${groupId}::${defaultSize}` : groupId;
+      const current = Number(state.cart[cartKey] || 0);
+      setCartQty(cartKey, current + 1);
       openCartModal();
     });
   });
@@ -1345,7 +1375,8 @@ function teardownShopAutoLoad() {
 function renderProductCard(item) {
   const images = item.image_files.length > 0 ? item.image_files : [""];
   const firstImage = imageUrl(images[0]);
-  const sizeText = splitSizes(item.size_mentions).slice(0, 1).map(formatSizeLabel).join(" ");
+  const availSizes = availableSizes(item);
+  const sizeText = availSizes.map(formatSizeLabel).join(", ");
   const isSold = isProductSoldOut(item);
   const dots = images.length > 1
     ? `<div class="card-dots">${images.map((_, idx) => `<span class="card-dot ${idx === 0 ? "active" : ""}" data-dot="${idx}"></span>`).join("")}</div>`
@@ -1426,13 +1457,16 @@ function renderProductDetails(productId) {
     .replace(/^\s*sold\s*[❌✖✕x-]*\s*/i, "")
     .trim() || "Product";
 
+  let selectedSize = availableSizes.length > 0 ? availableSizes[0] : (sizes[0] || "");
+
   const sizeMarkup = sizes.length
     ? sizes.map((size) => {
         const sold = soldSizes.has(size);
-        return `<span class="detail-size ${sold ? "detail-size-sold" : "detail-size-avail"}" ${sold ? 'aria-disabled="true" title="Sold out"' : ""}>
+        const isSelected = size === selectedSize;
+        return `<button type="button" class="detail-size ${sold ? "detail-size-sold" : "detail-size-avail"} ${isSelected ? "selected" : ""}" data-size="${escapeHtml(size)}" ${sold ? 'disabled aria-disabled="true" title="Sold out"' : ""}>
           <span>${escapeHtml(formatSizeLabel(size))}</span>
           ${sold ? '<small class="sold-tag">Sold</small>' : ""}
-        </span>`;
+        </button>`;
       }).join("")
     : '<span class="detail-size-empty">Size not specified</span>';
 
@@ -1504,6 +1538,13 @@ function renderProductDetails(productId) {
       .detail-size-avail{border-color:#cbd6c3;background:#f7fbf4;color:#284521}
       .detail-size-empty{color:#777;line-height:1.6}
       .detail-sold-banner{margin-top:0.9rem;padding:0.65rem 0.85rem;border-radius:8px;background:#fdf2f0;border:1px solid #f2d4ce;font-size:0.88rem;line-height:1.6;color:#802b20}
+      .detail-size-chart-details{margin-top:1.2rem;border:1px solid #e2dad2;border-radius:10px;overflow:hidden;background:#faf8f5}
+      .detail-size-chart-summary{padding:0.7rem 1rem;font-weight:600;font-size:0.9rem;color:var(--brand,#7b916f);cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;list-style:none}
+      .detail-size-chart-summary::-webkit-details-marker{display:none}
+      .detail-size-chart-summary::after{content:"▼";font-size:0.7rem;margin-left:0.5rem;transition:transform 0.2s ease}
+      .detail-size-chart-details[open] .detail-size-chart-summary::after{content:"▲"}
+      .detail-size-chart-body{padding:0.8rem 1rem 1rem;border-top:1px solid #e2dad2;text-align:center;background:#ffffff}
+      .detail-size-chart-img{max-width:100%;height:auto;border-radius:8px;display:block;margin:0 auto}
       .detail-no-image{min-height:380px;display:grid;place-items:center;border-radius:16px;background:#f1f1f1}
       @media(max-width:820px){
         .product-detail-page{margin:.5rem auto;padding:0 .75rem 1.5rem}
@@ -1567,6 +1608,29 @@ function renderProductDetails(productId) {
                   <strong>Sold out:</strong> ${soldSizesList.map(formatSizeLabel).join(", ")}
                 </div>
               ` : ""}
+              <details class="detail-size-chart-details">
+                <summary class="detail-size-chart-summary">
+                  <span>View Size Chart</span>
+                </summary>
+                <div class="detail-size-chart-body">
+                  <img src="static/Size%20Chart.jpeg" alt="Size Chart" class="detail-size-chart-img" loading="lazy" />
+                </div>
+              </details>
+              <details class="detail-size-chart-details" style="margin-top:0.6rem;">
+                <summary class="detail-size-chart-summary">
+                  <span>Returns, Refunds &amp; Exchanges Policy</span>
+                </summary>
+                <div class="detail-size-chart-body" style="text-align:left; font-size:0.88rem; line-height:1.6; color:#4a423a;">
+                  <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Change of Mind</strong>
+                  <p style="margin:0 0 0.75rem;">We do not offer refunds, exchanges, or store credits for change-of-mind purchases. Please choose carefully before placing your order.</p>
+                  
+                  <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Faulty, Damaged, or Incorrect Items</strong>
+                  <p style="margin:0 0 0.75rem;">If an item arrives damaged, faulty, or is not as described, you may be entitled to a repair, replacement, or refund under the Consumer Guarantees Act 1993. Please contact us within a reasonable time of discovering the issue and provide your order number and photos of the item.</p>
+                  
+                  <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Consumer Guarantees Act</strong>
+                  <p style="margin:0;">Nothing in this policy limits or excludes your rights under the Consumer Guarantees Act 1993 or any other applicable New Zealand consumer laws.</p>
+                </div>
+              </details>
             </div>
             <div class="detail-order-actions">
               <label for="detailQtyInput" style="display:block; font-size:0.88rem; font-weight:600; margin-bottom:0.45rem; letter-spacing:0.01em;">Order Quantity</label>
@@ -1636,6 +1700,15 @@ function renderProductDetails(productId) {
     touchStartX = null;
   }, { passive:true });
 
+  document.querySelectorAll("[data-size]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.disabled || btn.classList.contains("detail-size-sold")) return;
+      selectedSize = btn.getAttribute("data-size");
+      document.querySelectorAll("[data-size]").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+
   const detailQtyInput = document.getElementById("detailQtyInput");
   document.getElementById("detailQtyDec")?.addEventListener("click", () => {
     if (detailQtyInput) {
@@ -1656,9 +1729,10 @@ function renderProductDetails(productId) {
 
   document.getElementById("addDetailToCartBtn")?.addEventListener("click", () => {
     const qtyToAdd = Math.max(1, Number(detailQtyInput?.value || 1));
-    setCartQty(product.group_id, Number(state.cart[product.group_id] || 0) + qtyToAdd);
+    const cartKey = selectedSize ? `${product.group_id}::${selectedSize}` : product.group_id;
+    setCartQty(cartKey, Number(state.cart[cartKey] || 0) + qtyToAdd);
     const message = document.getElementById("productDetailMessage");
-    if (message) message.innerHTML = `<p class="notice">Added ${qtyToAdd} item${qtyToAdd > 1 ? "s" : ""} to your order.</p>`;
+    if (message) message.innerHTML = `<p class="notice">Added ${qtyToAdd} item${qtyToAdd > 1 ? "s" : ""} ${selectedSize ? `(${formatSizeLabel(selectedSize)})` : ""} to your order.</p>`;
     openCartModal();
   });
   updateCartCount();
@@ -1863,7 +1937,9 @@ function renderCartModal() {
   }
 
   const rows = getCartRows();
-  const total = rows.reduce((sum, row) => sum + row.line_total, 0);
+  const itemsTotal = rows.reduce((sum, row) => sum + row.line_total, 0);
+  const shippingCost = state.shippingMethod === "express" ? 9 : 7;
+  const grandTotal = itemsTotal + shippingCost;
 
   modalRoot.innerHTML = `
     <div class="cart-modal-backdrop" id="cartModalBackdrop"></div>
@@ -1873,7 +1949,7 @@ function renderCartModal() {
           <h1>Checkout</h1>
           <button class="secondary" id="cartModalCloseBtn" type="button" aria-label="Close">✕</button>
         </div>
-        <p>Cart total: <b>${formatMoney(total)}</b></p>
+        <p>Items total: <b>${formatMoney(itemsTotal)}</b></p>
         <div id="cartRows"></div>
         <div class="field cart-clear-wrap">
           <div class="cart-clear-actions">
@@ -1897,6 +1973,42 @@ function renderCartModal() {
         <datalist id="nzCityList">${Object.keys(NZ_CITY_POSTCODE).map((city) => `<option value="${city.replaceAll("_", " ")}"></option>`).join("")}</datalist>
         <div class="field"><label for="nzPostcode">Postcode</label><input id="nzPostcode" type="text" maxlength="4" inputmode="numeric" placeholder="4-digit NZ postcode" /></div>
         <div class="field"><label for="nzCountry">Country</label><input id="nzCountry" type="text" value="New Zealand" readonly /></div>
+        
+        <div class="field" style="margin-top:1rem; padding:0.85rem; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,0.6); box-sizing:border-box;">
+          <label style="font-weight:700; margin-bottom:0.6rem; display:block;">Shipping Options</label>
+          <div style="display:flex; flex-direction:column; gap:0.6rem;">
+            <label style="display:flex; justify-content:space-between; align-items:center; width:100%; box-sizing:border-box; font-size:0.9rem; cursor:pointer; padding:0.6rem 0.85rem; border:1px solid var(--line); border-radius:6px; background:#fff;">
+              <span style="display:inline-flex; align-items:center; gap:0.55rem;">
+                <input type="radio" name="shippingOption" value="normal" style="margin:0; vertical-align:middle;" ${state.shippingMethod === "normal" ? "checked" : ""} />
+                <span style="line-height:1.2;">Standard Shipping</span>
+              </span>
+              <strong style="color:var(--brand); line-height:1.2; text-align:right; font-variant-numeric:tabular-nums;">$7.00</strong>
+            </label>
+            <label style="display:flex; justify-content:space-between; align-items:center; width:100%; box-sizing:border-box; font-size:0.9rem; cursor:pointer; padding:0.6rem 0.85rem; border:1px solid var(--line); border-radius:6px; background:#fff;">
+              <span style="display:inline-flex; align-items:center; gap:0.55rem;">
+                <input type="radio" name="shippingOption" value="express" style="margin:0; vertical-align:middle;" ${state.shippingMethod === "express" ? "checked" : ""} />
+                <span style="line-height:1.2;">Express Shipping</span>
+              </span>
+              <strong style="color:var(--brand); line-height:1.2; text-align:right; font-variant-numeric:tabular-nums;">$9.00</strong>
+            </label>
+          </div>
+        </div>
+
+        <div class="checkout-summary" style="margin:1rem 0; padding:0.85rem; border-radius:8px; background:var(--brand-soft,#f4f7f2); border:1px solid #d5e0cf;">
+          <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.9rem;">
+            <span>Items Subtotal:</span>
+            <span>${formatMoney(itemsTotal)}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.9rem;">
+            <span>Shipping (<span id="shippingSummaryLabel">${state.shippingMethod === "express" ? "Express" : "Standard"}</span>):</span>
+            <span id="shippingSummaryCost">${formatMoney(shippingCost)}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-weight:700; font-size:1.1rem; border-top:1px solid #c4d4bd; padding-top:0.35rem; margin-top:0.35rem; color:#1c140d;">
+            <span>Total:</span>
+            <span id="grandTotalSummaryCost">${formatMoney(grandTotal)}</span>
+          </div>
+        </div>
+
         <div class="checkout-actions">
           <button id="placeOrderBtn">Place order</button>
           <button class="secondary" id="backToCartBtn" type="button">Back to cart</button>
@@ -1915,15 +2027,16 @@ function renderCartModal() {
         <img class="cart-thumb" src="${imageUrl(row.image)}" alt="${escapeHtml(row.title)}" />
         <div class="cart-item-info">
           <b>${escapeHtml(row.title)}</b>
+          ${row.size ? `<p style="font-size:0.84rem; color:var(--brand); font-weight:600; margin:0.15rem 0;">Size: ${escapeHtml(formatSizeLabel(row.size))}</p>` : ""}
           <p>${formatMoney(row.price)}</p>
           <p>Total: ${formatMoney(row.line_total)}</p>
         </div>
         <div class="cart-item-qty-wrap">
-          <label for="qty_${escapeHtml(row.group_id)}">Qty</label>
+          <label for="qty_${escapeHtml(row.cartKey)}">Qty</label>
           <div class="qty-stepper">
-            <button type="button" class="qty-step-btn" data-qty-dec="${escapeHtml(row.group_id)}" aria-label="Decrease quantity for ${escapeHtml(row.title)}">−</button>
-            <input id="qty_${escapeHtml(row.group_id)}" class="qty-step-input" type="number" min="0" max="99" value="${row.qty}" data-qty-id="${escapeHtml(row.group_id)}" />
-            <button type="button" class="qty-step-btn" data-qty-inc="${escapeHtml(row.group_id)}" aria-label="Increase quantity for ${escapeHtml(row.title)}">+</button>
+            <button type="button" class="qty-step-btn" data-qty-dec="${escapeHtml(row.cartKey)}" aria-label="Decrease quantity for ${escapeHtml(row.title)}">−</button>
+            <input id="qty_${escapeHtml(row.cartKey)}" class="qty-step-input" type="number" min="0" max="99" value="${row.qty}" data-qty-id="${escapeHtml(row.cartKey)}" />
+            <button type="button" class="qty-step-btn" data-qty-inc="${escapeHtml(row.cartKey)}" aria-label="Increase quantity for ${escapeHtml(row.title)}">+</button>
           </div>
         </div>
       </div>
@@ -1932,27 +2045,27 @@ function renderCartModal() {
 
   rowsWrap.querySelectorAll("[data-qty-dec]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const groupId = btn.getAttribute("data-qty-dec");
-      const current = Number(state.cart[groupId] || 0);
-      setCartQty(groupId, Math.max(0, current - 1));
+      const cartKey = btn.getAttribute("data-qty-dec");
+      const current = Number(state.cart[cartKey] || 0);
+      setCartQty(cartKey, Math.max(0, current - 1));
       renderCartModal();
     });
   });
 
   rowsWrap.querySelectorAll("[data-qty-inc]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const groupId = btn.getAttribute("data-qty-inc");
-      const current = Number(state.cart[groupId] || 0);
-      setCartQty(groupId, Math.min(99, current + 1));
+      const cartKey = btn.getAttribute("data-qty-inc");
+      const current = Number(state.cart[cartKey] || 0);
+      setCartQty(cartKey, Math.min(99, current + 1));
       renderCartModal();
     });
   });
 
   rowsWrap.querySelectorAll("input[data-qty-id]").forEach((node) => {
     node.addEventListener("change", (event) => {
-      const groupId = event.target.getAttribute("data-qty-id");
+      const cartKey = event.target.getAttribute("data-qty-id");
       const val = Math.max(0, Math.min(99, Number(event.target.value || 0)));
-      setCartQty(groupId, val);
+      setCartQty(cartKey, val);
       renderCartModal();
     });
   });
@@ -2037,7 +2150,24 @@ function renderCartModal() {
     }
   }
 
-  document.getElementById("placeOrderBtn").addEventListener("click", () => placeOrder(rows, total));
+  document.querySelectorAll('input[name="shippingOption"]').forEach((radio) => {
+    radio.addEventListener("change", (e) => {
+      state.shippingMethod = e.target.value;
+      const isExpress = state.shippingMethod === "express";
+      const cost = isExpress ? 9 : 7;
+      const newGrandTotal = itemsTotal + cost;
+      
+      const label = document.getElementById("shippingSummaryLabel");
+      const costSpan = document.getElementById("shippingSummaryCost");
+      const grandTotalSpan = document.getElementById("grandTotalSummaryCost");
+      
+      if (label) label.textContent = isExpress ? "Express" : "Standard";
+      if (costSpan) costSpan.textContent = formatMoney(cost);
+      if (grandTotalSpan) grandTotalSpan.textContent = formatMoney(newGrandTotal);
+    });
+  });
+
+  document.getElementById("placeOrderBtn").addEventListener("click", () => placeOrder(rows, itemsTotal));
   const backToCartBtn = document.getElementById("backToCartBtn");
   if (backToCartBtn) {
     backToCartBtn.addEventListener("click", () => {
@@ -2049,7 +2179,7 @@ function renderCartModal() {
   }
 }
 
-async function placeOrder(rows, total) {
+async function placeOrder(rows, itemsTotal) {
   const name = document.getElementById("customerName").value.trim();
   const phone = document.getElementById("customerPhone").value.trim();
   const email = document.getElementById("customerEmail").value.trim();
@@ -2071,6 +2201,11 @@ async function placeOrder(rows, total) {
     return;
   }
 
+  const shippingMethod = state.shippingMethod === "express" ? "express" : "normal";
+  const shippingCost = shippingMethod === "express" ? 9 : 7;
+  const shippingTitle = shippingMethod === "express" ? "Express Shipping" : "Normal Shipping";
+  const grandTotal = itemsTotal + shippingCost;
+
   const orderId = String(Math.floor(10000 + Math.random() * 90000));
   const payload = {
     order_id: orderId,
@@ -2079,7 +2214,10 @@ async function placeOrder(rows, total) {
     customer_email: email,
     customer_phone: phone,
     address,
-    total,
+    items_total: itemsTotal,
+    shipping_method: shippingTitle,
+    shipping_cost: shippingCost,
+    total: grandTotal,
     items: rows
   };
 
@@ -2092,7 +2230,7 @@ async function placeOrder(rows, total) {
     };
   });
 
-  const lines = rows.map((row) => `- ${row.title} | qty ${row.qty} | ${formatMoney(row.line_total)}`).join("%0D%0A");
+  const lines = rows.map((row) => `- ${row.title}${row.size ? ` (Size: ${formatSizeLabel(row.size)})` : ""} | qty ${row.qty} | ${formatMoney(row.line_total)}`).join("%0D%0A");
   const body = [
     `Order ID: ${orderId}`,
     `Customer: ${name}`,
@@ -2103,7 +2241,9 @@ async function placeOrder(rows, total) {
     "Items:",
     lines,
     "",
-    `Grand total: ${formatMoney(total)}`
+    `Subtotal: ${formatMoney(itemsTotal)}`,
+    `Shipping (${shippingTitle}): ${formatMoney(shippingCost)}`,
+    `Grand total: ${formatMoney(grandTotal)}`
   ].join("%0D%0A");
 
   const plainBody = decodeURIComponent(body);
@@ -2115,7 +2255,10 @@ async function placeOrder(rows, total) {
       customer_email: email,
       customer_phone: phone,
       address,
-      total,
+      items_total: itemsTotal,
+      shipping_method: shippingTitle,
+      shipping_cost: shippingCost,
+      total: grandTotal,
       items: emailItems,
       body: plainBody
     });
@@ -2225,44 +2368,81 @@ function renderStock() {
           <div class="metric">Sold out / unavailable<b>${overview.soldOut}</b></div>
         </div>
         <div id="stockSyncMessage"></div>
-      </article>
 
-      <article class="panel">
-        <h2>Filters</h2>
-        <div class="field"><label for="sfStock">Stock state</label>
-          <select id="sfStock">
-            <option value="all" ${state.stockFilters.stockState === "all" ? "selected" : ""}>All</option>
-            <option value="available" ${state.stockFilters.stockState === "available" ? "selected" : ""}>Available</option>
-            <option value="sold" ${state.stockFilters.stockState === "sold" ? "selected" : ""}>Sold out / unavailable</option>
-          </select>
-        </div>
-        <div class="field"><label for="sfActive">Active flag</label>
-          <select id="sfActive">
-            <option value="all" ${state.stockFilters.activeState === "all" ? "selected" : ""}>All</option>
-            <option value="active" ${state.stockFilters.activeState === "active" ? "selected" : ""}>Active only</option>
-            <option value="inactive" ${state.stockFilters.activeState === "inactive" ? "selected" : ""}>Inactive only</option>
-          </select>
-        </div>
-        <div class="field"><label for="sfSize">Size</label>
-          <select id="sfSize">
-            <option value="all" ${state.stockFilters.size === "all" ? "selected" : ""}>All sizes</option>
-            ${SIZE_ORDER.map((size) => `<option value="${size}" ${state.stockFilters.size === size ? "selected" : ""}>${formatSizeLabel(size)}</option>`).join("")}
-          </select>
+        <div class="chip-row" style="margin-top: 1.25rem; border-bottom: 1px solid var(--line); padding-bottom: 0.5rem;">
+          <button type="button" class="chip ${state.stockTab === "products" ? "active" : ""}" id="tabProductsBtn">📦 Products Catalog</button>
+          <button type="button" class="chip ${state.stockTab === "orders" ? "active" : ""}" id="tabOrdersBtn">🛍️ Orders Received</button>
         </div>
       </article>
 
-      <article class="panel">
-        <h2>Products</h2>
-        <p>Select a product to open it in the product editor.</p>
-        <div id="stockProductTable"></div>
-      </article>
-      <article class="panel" id="stockEditorPanel"></article>
+      <div id="stockTabContent"></div>
     </section>
   `;
 
   document.getElementById("stockBackBtn").addEventListener("click", () => {
     location.hash = "#/shop";
   });
+
+  const tabProductsBtn = document.getElementById("tabProductsBtn");
+  if (tabProductsBtn) {
+    tabProductsBtn.addEventListener("click", () => {
+      state.stockTab = "products";
+      renderStock();
+    });
+  }
+
+  const tabOrdersBtn = document.getElementById("tabOrdersBtn");
+  if (tabOrdersBtn) {
+    tabOrdersBtn.addEventListener("click", () => {
+      state.stockTab = "orders";
+      renderStock();
+    });
+  }
+
+  if (state.stockTab === "orders") {
+    renderOrdersTab();
+    return;
+  }
+
+  renderProductsTab(filtered);
+}
+
+function renderProductsTab(filtered) {
+  const tabContent = document.getElementById("stockTabContent");
+  if (!tabContent) return;
+
+  tabContent.innerHTML = `
+    <article class="panel">
+      <h2>Filters</h2>
+      <div class="field"><label for="sfStock">Stock state</label>
+        <select id="sfStock">
+          <option value="all" ${state.stockFilters.stockState === "all" ? "selected" : ""}>All</option>
+          <option value="available" ${state.stockFilters.stockState === "available" ? "selected" : ""}>Available</option>
+          <option value="sold" ${state.stockFilters.stockState === "sold" ? "selected" : ""}>Sold out / unavailable</option>
+        </select>
+      </div>
+      <div class="field"><label for="sfActive">Active flag</label>
+        <select id="sfActive">
+          <option value="all" ${state.stockFilters.activeState === "all" ? "selected" : ""}>All</option>
+          <option value="active" ${state.stockFilters.activeState === "active" ? "selected" : ""}>Active only</option>
+          <option value="inactive" ${state.stockFilters.activeState === "inactive" ? "selected" : ""}>Inactive only</option>
+        </select>
+      </div>
+      <div class="field"><label for="sfSize">Size</label>
+        <select id="sfSize">
+          <option value="all" ${state.stockFilters.size === "all" ? "selected" : ""}>All sizes</option>
+          ${SIZE_ORDER.map((size) => `<option value="${size}" ${state.stockFilters.size === size ? "selected" : ""}>${formatSizeLabel(size)}</option>`).join("")}
+        </select>
+      </div>
+    </article>
+
+    <article class="panel">
+      <h2>Products</h2>
+      <p>Select a product to open it in the product editor.</p>
+      <div id="stockProductTable"></div>
+    </article>
+    <article class="panel" id="stockEditorPanel"></article>
+  `;
 
   const stockSyncExcelBtn = document.getElementById("stockSyncExcelBtn");
   if (stockSyncExcelBtn) {
@@ -2334,6 +2514,145 @@ function renderStock() {
     clearStockSession();
     renderStock();
   });
+
+  wireStockFilter("#sfStock", "stockState");
+  wireStockFilter("#sfActive", "activeState");
+  wireStockFilter("#sfSize", "size");
+
+  renderStockTable(filtered);
+  renderStockEditor(filtered);
+}
+
+async function renderOrdersTab() {
+  const tabContent = document.getElementById("stockTabContent");
+  if (!tabContent) return;
+
+  tabContent.innerHTML = `
+    <article class="panel">
+      <h2>Orders Received</h2>
+      <p>Customer details and placed order history.</p>
+      <div id="ordersLoadingMsg"><p class="notice">Loading orders...</p></div>
+      <div id="ordersContainer"></div>
+    </article>
+  `;
+
+  try {
+    const res = await fetch(`${CATALOG_API_URL}?type=orders`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.ordersList = data.orders || [];
+  } catch (err) {
+    console.warn("Could not fetch orders from API:", err);
+  }
+
+  const container = document.getElementById("ordersContainer");
+  const loadingMsg = document.getElementById("ordersLoadingMsg");
+  if (loadingMsg) loadingMsg.style.display = "none";
+
+  if (!container) return;
+
+  if (state.ordersList.length === 0) {
+    container.innerHTML = '<p class="notice warning">No orders found yet.</p>';
+    return;
+  }
+
+  container.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:1.2rem;">
+      ${state.ordersList.map((order) => {
+        const orderDate = new Date(order.created_at || order.created_utc || Date.now()).toLocaleString("en-NZ", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true
+        });
+
+        const itemsArr = Array.isArray(order.items) ? order.items : [];
+
+        return `
+          <div style="border:1px solid var(--line); border-radius:10px; padding:1.2rem; background:#ffffff; box-shadow:0 2px 6px rgba(0,0,0,0.04);">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:0.5rem; border-bottom:1px solid #eee; padding-bottom:0.75rem; margin-bottom:0.85rem;">
+              <div>
+                <strong style="font-size:1.1rem; color:var(--brand);">Order #${escapeHtml(order.order_id)}</strong>
+                <span style="font-size:0.82rem; color:#777; margin-left:0.5rem;">${escapeHtml(orderDate)}</span>
+              </div>
+              <div style="font-size:1.1rem; font-weight:700; color:#1c140d;">
+                ${formatMoney(order.total)}
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:1rem; margin-bottom:1rem; background:#fbf9f6; padding:0.85rem; border-radius:8px; border:1px solid #efe8e0;">
+              <div>
+                <strong style="font-size:0.85rem; text-transform:uppercase; color:#6e5440; display:block; margin-bottom:0.3rem;">Customer Info</strong>
+                <div style="font-weight:600; color:#2a2017;">👤 ${escapeHtml(order.customer_name)}</div>
+                <div style="font-size:0.88rem; color:#4a3729; margin-top:0.2rem;">✉️ <a href="mailto:${escapeHtml(order.customer_email)}" style="color:inherit;">${escapeHtml(order.customer_email)}</a></div>
+                <div style="font-size:0.88rem; color:#4a3729; margin-top:0.2rem;">📞 ${escapeHtml(order.customer_phone)}</div>
+              </div>
+
+              <div>
+                <strong style="font-size:0.85rem; text-transform:uppercase; color:#6e5440; display:block; margin-bottom:0.3rem;">Delivery Address</strong>
+                <div style="font-size:0.88rem; color:#2a2017; line-height:1.4;">📍 ${escapeHtml(order.address)}</div>
+                <div style="font-size:0.85rem; color:var(--brand); margin-top:0.4rem; font-weight:600;">🚚 ${escapeHtml(order.shipping_method || "Standard Shipping")} (${formatMoney(order.shipping_cost || 7)})</div>
+              </div>
+            </div>
+
+            <strong style="font-size:0.85rem; text-transform:uppercase; color:#6e5440; display:block; margin-bottom:0.5rem;">Ordered Items</strong>
+            <div style="display:flex; flex-direction:column; gap:0.5rem;">
+              ${itemsArr.map((item) => `
+                <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9rem; padding:0.4rem 0.6rem; background:#fff; border:1px solid #ece6de; border-radius:6px;">
+                  <div>
+                    <strong>${escapeHtml(item.title || "Item")}</strong>
+                    ${item.size ? `<span style="font-size:0.8rem; background:#f0f4ee; color:#284521; padding:0.1rem 0.4rem; border-radius:4px; font-weight:600; margin-left:0.4rem;">Size: ${escapeHtml(formatSizeLabel(item.size))}</span>` : ""}
+                    <span style="font-size:0.82rem; color:#777; margin-left:0.5rem;">Qty: ${item.qty || 1}</span>
+                  </div>
+                  <strong>${formatMoney(item.line_total || item.price || 0)}</strong>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderProductsTab(filtered) {
+  const tabContent = document.getElementById("stockTabContent");
+  if (!tabContent) return;
+
+  tabContent.innerHTML = `
+    <article class="panel">
+      <h2>Filters</h2>
+      <div class="field"><label for="sfStock">Stock state</label>
+        <select id="sfStock">
+          <option value="all" ${state.stockFilters.stockState === "all" ? "selected" : ""}>All</option>
+          <option value="available" ${state.stockFilters.stockState === "available" ? "selected" : ""}>Available</option>
+          <option value="sold" ${state.stockFilters.stockState === "sold" ? "selected" : ""}>Sold out / unavailable</option>
+        </select>
+      </div>
+      <div class="field"><label for="sfActive">Active flag</label>
+        <select id="sfActive">
+          <option value="all" ${state.stockFilters.activeState === "all" ? "selected" : ""}>All</option>
+          <option value="active" ${state.stockFilters.activeState === "active" ? "selected" : ""}>Active only</option>
+          <option value="inactive" ${state.stockFilters.activeState === "inactive" ? "selected" : ""}>Inactive only</option>
+        </select>
+      </div>
+      <div class="field"><label for="sfSize">Size</label>
+        <select id="sfSize">
+          <option value="all" ${state.stockFilters.size === "all" ? "selected" : ""}>All sizes</option>
+          ${SIZE_ORDER.map((size) => `<option value="${size}" ${state.stockFilters.size === size ? "selected" : ""}>${formatSizeLabel(size)}</option>`).join("")}
+        </select>
+      </div>
+    </article>
+
+    <article class="panel">
+      <h2>Products</h2>
+      <p>Select a product to open it in the product editor.</p>
+      <div id="stockProductTable"></div>
+    </article>
+    <article class="panel" id="stockEditorPanel"></article>
+  `;
 
   wireStockFilter("#sfStock", "stockState");
   wireStockFilter("#sfActive", "activeState");

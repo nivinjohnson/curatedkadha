@@ -1,4 +1,13 @@
 const nodemailer = require("nodemailer");
+const { createClient } = require("@supabase/supabase-js");
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+
+function getSupabaseClient() {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+}
 
 function money(value) {
   return `$${Number(value || 0).toFixed(2)}`;
@@ -17,6 +26,7 @@ function buildOrderEmailHtml(payload, toEmail) {
   const items = Array.isArray(payload.items) ? payload.items : [];
   const itemRows = items.map((row) => {
     const title = escapeHtml(row.title || "Item");
+    const size = escapeHtml(row.size || "");
     const qty = Number(row.qty || 0);
     const unitPrice = Number(row.price || 0);
     const lineTotal = Number(row.line_total || 0);
@@ -30,7 +40,8 @@ function buildOrderEmailHtml(payload, toEmail) {
       `<td style="padding:14px 0;border-bottom:1px solid #f0e6d8;vertical-align:top;">${imageBlock}</td>`,
       '<td style="padding:14px 0 14px 14px;border-bottom:1px solid #f0e6d8;vertical-align:top;">',
       `<div style="font-size:16px;font-weight:700;color:#1c140d;">${title}</div>`,
-      `<div style="font-size:13px;color:#6e5440;margin-top:6px;">Qty: ${qty}</div>`,
+      size ? `<div style="font-size:13px;font-weight:600;color:#7b916f;margin-top:4px;">Size: ${size}</div>` : "",
+      `<div style="font-size:13px;color:#6e5440;margin-top:4px;">Qty: ${qty}</div>`,
       `<div style="font-size:13px;color:#6e5440;">Unit price: ${money(unitPrice)}</div>`,
       `<div style="font-size:14px;color:#1c140d;font-weight:700;margin-top:8px;">Line total: ${money(lineTotal)}</div>`,
       "</td>",
@@ -52,6 +63,9 @@ function buildOrderEmailHtml(payload, toEmail) {
   const customerPhone = escapeHtml(payload.customer_phone || "");
   const customerAddress = escapeHtml(payload.address || "");
   const grandTotal = money(payload.total || 0);
+  const itemsTotal = money(payload.items_total || payload.total);
+  const shippingMethod = escapeHtml(payload.shipping_method || "Standard Shipping");
+  const shippingCost = money(payload.shipping_cost || 0);
 
   return [
     "<!doctype html>",
@@ -112,8 +126,16 @@ function buildOrderEmailHtml(payload, toEmail) {
     '<td style="padding:18px 24px 24px;">',
     '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:2px dashed #eddcc7;padding-top:14px;">',
     "<tr>",
-    '<td style="font-size:16px;color:#4a3729;"><strong>Grand Total</strong></td>',
-    `<td align="right" style="font-size:20px;color:#20150b;"><strong>${grandTotal}</strong></td>`,
+    '<td style="font-size:14px;color:#5f4836;padding-bottom:4px;">Items Subtotal</td>',
+    `<td align="right" style="font-size:14px;color:#20150b;padding-bottom:4px;">${itemsTotal}</td>`,
+    "</tr>",
+    "<tr>",
+    `<td style="font-size:14px;color:#5f4836;padding-bottom:8px;">Shipping (${shippingMethod})</td>`,
+    `<td align="right" style="font-size:14px;color:#20150b;padding-bottom:8px;">${shippingCost}</td>`,
+    "</tr>",
+    "<tr>",
+    '<td style="font-size:16px;color:#4a3729;border-top:1px solid #eddcc7;padding-top:8px;"><strong>Grand Total</strong></td>',
+    `<td align="right" style="font-size:20px;color:#20150b;border-top:1px solid #eddcc7;padding-top:8px;"><strong>${grandTotal}</strong></td>`,
     "</tr>",
     "</table>",
     "</td>",
@@ -221,6 +243,69 @@ exports.handler = async (event) => {
 
   if (bccEmail) {
     message.bcc = bccEmail;
+  }
+
+  // Save order to Supabase orders table and update product inventory
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.from("orders").insert([{
+        order_id: String(payload.order_id),
+        customer_name: String(payload.customer_name),
+        customer_email: toEmail,
+        customer_phone: String(payload.customer_phone),
+        address: String(payload.address),
+        items: payload.items || [],
+        items_total: Number(payload.items_total || payload.total || 0),
+        shipping_method: String(payload.shipping_method || "Standard Shipping"),
+        shipping_cost: Number(payload.shipping_cost || 0),
+        total: Number(payload.total || 0),
+        status: "pending",
+        created_at: payload.created_utc || new Date().toISOString()
+      }]);
+
+      // Deduct item_count and update sold_sizes / caption_has_sold for ordered products
+      const itemsList = Array.isArray(payload.items) ? payload.items : [];
+      for (const item of itemsList) {
+        const groupId = item.group_id;
+        const orderedQty = Number(item.qty || 1);
+        const orderedSize = String(item.size || "").trim().toUpperCase();
+
+        if (!groupId) continue;
+
+        const { data: currentProduct, error: fetchErr } = await supabase
+          .from("product_info")
+          .select("group_id, item_count, sold_sizes, caption_has_sold")
+          .eq("group_id", groupId)
+          .single();
+
+        if (fetchErr || !currentProduct) continue;
+
+        const newCount = Math.max(0, Number(currentProduct.item_count || 1) - orderedQty);
+        let currentSoldSizes = String(currentProduct.sold_sizes || "")
+          .split(";")
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        if (orderedSize && !currentSoldSizes.includes(orderedSize)) {
+          currentSoldSizes.push(orderedSize);
+        }
+
+        const updatePayload = {
+          item_count: newCount,
+          sold_sizes: currentSoldSizes.join(";"),
+          caption_has_sold: newCount === 0 ? true : currentProduct.caption_has_sold,
+          updated_at: new Date().toISOString()
+        };
+
+        await supabase
+          .from("product_info")
+          .update(updatePayload)
+          .eq("group_id", groupId);
+      }
+    } catch (dbErr) {
+      console.error("Failed to update orders or inventory in Supabase:", dbErr);
+    }
   }
 
   try {

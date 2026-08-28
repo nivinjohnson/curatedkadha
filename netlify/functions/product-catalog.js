@@ -248,6 +248,17 @@ exports.handler = async (event) => {
   }
 
   if (event.httpMethod === "GET") {
+    const params = event.queryStringParameters || {};
+    if (params.type === "orders") {
+      try {
+        const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
+        if (error) return json(500, { ok: false, error: error.message });
+        return json(200, { ok: true, orders: data || [] });
+      } catch (error) {
+        return json(500, { ok: false, error: error.message });
+      }
+    }
+
     try {
       const { data, error } = await supabase.from(TABLE_NAME).select("*").order("product_date", { ascending: false });
       if (error) return json(500, { ok: false, error: error.message });

@@ -836,7 +836,7 @@ function normalizeInstagramRowsToCatalog(rows) {
       image_files: imageFiles.join(";"),
       permalink: pickFirstValue(first, ["permalink", "post_url", "url"]),
       product_type: pickFirstValue(first, ["product_type", "media_type"]) || "IMAGE",
-      product_date: normalizeDate(productDateRaw),
+      product_date: normalizeDate(productDateRaw).toISOString(),
       price: Number(pickFirstValue(first, ["price"])) || computeDefaultPrice(title, caption, pickFirstValue(first, ["tags"]) || parsed.tags, imageFiles.length),
       caption_has_sold: boolFromCell(first.caption_has_sold, soldSizesSheet ? true : false),
       item_count: Number(pickFirstValue(first, ["item_count"]) || imageFiles.length || 1),

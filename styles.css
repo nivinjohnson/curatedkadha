@@ -44,17 +44,16 @@ body {
 .banner-img-wrap {
   position: relative;
   width: 100%;
-  height: clamp(160px, 42vw, 240px);
+  height: clamp(180px, 24vw, 380px);
   overflow: hidden;
 }
-
 .banner-img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
+  object-position: center;
 }
-
 .brand-wrap {
   position: absolute;
   inset: 0;
@@ -1135,6 +1134,12 @@ tr:hover {
 }
 
 @media (max-width: 620px) {
+  .banner-img-wrap {
+    height: clamp(180px, 52vw, 240px);
+  }
+  .banner-img {
+    object-position: center;
+  }
   .app-shell {
     padding: 0.6rem 0.55rem 1.2rem;
   }
@@ -1287,9 +1292,11 @@ tr:hover {
 
 @media (min-width: 621px) {
   .topbar {
-    flex-direction: row;
-    align-items: center;
-    padding: 1rem 1.5rem 1.1rem;
+    display: block;
+    padding: 0;
+  }
+  .banner-img-wrap {
+    height: clamp(240px, 28vw, 420px);
   }
 
   .app-shell {

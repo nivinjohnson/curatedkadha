@@ -1060,8 +1060,8 @@ function renderShop() {
         </select>
 
         <select id="fStock" class="shop-filter-select">
-          <option value="available" ${state.filters.stockFilter === "available" ? "selected" : ""}>Available</option>
-          <option value="sold" ${state.filters.stockFilter === "sold" ? "selected" : ""}>Sold out</option>
+          <option value="available" ${state.filters.stockFilter === "available" ? "selected" : ""}>In Stock</option>
+          <option value="sold" ${state.filters.stockFilter === "sold" ? "selected" : ""}>Sold Out</option>
         </select>
 
         <select id="fSort" class="shop-filter-select">

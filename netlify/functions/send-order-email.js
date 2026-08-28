@@ -39,7 +39,13 @@ function buildOrderEmailHtml(payload, toEmail) {
   }).join("");
 
   const orderId = escapeHtml(payload.order_id || "");
-  const createdUtc = escapeHtml(payload.created_utc || "");
+    const createdUtc = new Date(payload.created_utc).toLocaleString("en-NZ", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+    });
   const customerName = escapeHtml(payload.customer_name || "");
   const customerPhone = escapeHtml(payload.customer_phone || "");
   const customerAddress = escapeHtml(payload.address || "");
@@ -57,7 +63,6 @@ function buildOrderEmailHtml(payload, toEmail) {
     '<td style="padding:22px 24px;background:linear-gradient(120deg,#e7d2b8,#f6e8d6);border-bottom:1px solid #eadccc;">',
     '<div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#7e6044;font-weight:700;">Curated Kadha</div>',
     '<h1 style="margin:8px 0 0;font-size:24px;line-height:1.2;color:#20150b;">Order Placed Successfully</h1>',
-    '<p style="margin:10px 0 0;font-size:14px;color:#5b4636;">Order details are sent to your email.</p>',
     "</td>",
     "</tr>",
     "<tr>",
@@ -87,6 +92,20 @@ function buildOrderEmailHtml(payload, toEmail) {
     "</table>",
     "</td>",
     "</tr>",
+
+    "<tr>",
+    '<td style="padding:20px 24px 0;">',
+    '<div style="background:#fff7ee;border:1px solid #eadccc;border-radius:12px;padding:18px;">',
+    '<h2 style="margin:0 0 12px;font-size:18px;color:#24190f;">Payment Instructions</h2>',
+    `<p style="margin:0 0 10px;font-size:14px;line-height:1.6;color:#5f4836;">Please pay <strong>${grandTotal}</strong> to the following bank account to start the shipping process.</p>`,
+    '<div style="font-size:20px;font-weight:700;color:#20150b;margin-bottom:10px;">06-0301-0600835-01</div>',
+    '<p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#5f4836;"><strong>Reference:</strong> Your Name</p>',
+    '<p style="margin:0;font-size:14px;line-height:1.6;color:#5f4836;">Once payment is received, we will begin processing and shipping your order.</p>',
+    '<p style="margin:10px 0 0;font-size:14px;line-height:1.6;color:#5f4836;">If you need to get in touch, please contact <a href="mailto:curatedkadha@gmail.com" style="color:#8b6f4e;font-weight:600;text-decoration:none;">curatedkadha@gmail.com</a> or message <strong>@curatedkadha</strong> on Instagram.</p>',
+    '</div>',
+    "</td>",
+    "</tr>",
+
     "<tr>",
     '<td style="padding:18px 24px 24px;">',
     '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:2px dashed #eddcc7;padding-top:14px;">',

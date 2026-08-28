@@ -2470,12 +2470,17 @@ function renderStockEditor(filteredRows) {
     const saveButton = document.getElementById("saveStockBtn");
     const messageNode = document.getElementById("stockSaveMessage");
     const previousProducts = state.products;
-    const updatedProducts = state.products.map((item) => item.group_id === current.group_id ? { ...item, ...patch } : item);
+    const currentGroupId = String(current.group_id ?? "").trim();
+    const updatedProducts = state.products.map((item) =>
+      String(item.group_id ?? "").trim().toLowerCase() === currentGroupId.toLowerCase()
+        ? { ...item, ...patch }
+        : item
+    );
     saveButton.disabled = true;
     saveButton.textContent = "Updating product...";
     messageNode.innerHTML = '<p class="notice">Updating product in database...</p>';
     try {
-      await updateProductInDatabase(current.group_id, patch);
+      await updateProductInDatabase(currentGroupId, patch);
       state.products = updatedProducts;
       state.stockEdits = {};
       localStorage.removeItem(EDITS_KEY);

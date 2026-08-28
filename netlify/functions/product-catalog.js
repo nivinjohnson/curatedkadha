@@ -312,10 +312,45 @@ exports.handler = async (event) => {
       if (!Number.isFinite(updatePayload.price)) return json(400, { ok: false, error: "Price must be a valid number." });
 
       try {
+        // Resolve the database ID first. This tolerates case differences,
+        // numeric/string conversion, and hidden leading or trailing spaces.
+        const { data: candidateRows, error: lookupError } = await supabase
+          .from(TABLE_NAME)
+          .select("group_id");
+
+        if (lookupError) {
+          console.error("Supabase product lookup error:", lookupError);
+          return json(500, {
+            ok: false,
+            error: lookupError.message,
+            details: lookupError.details || null,
+            hint: lookupError.hint || null,
+            code: lookupError.code || null
+          });
+        }
+
+        const normalizedRequestedId = groupId.trim().toLowerCase();
+        const matchingRow = (candidateRows || []).find((row) =>
+          String(row.group_id ?? "").trim().toLowerCase() === normalizedRequestedId
+        );
+
+        if (!matchingRow) {
+          console.error("Product group_id not found", {
+            receivedGroupId: groupId,
+            availableIdCount: (candidateRows || []).length
+          });
+          return json(404, {
+            ok: false,
+            error: `No product was found with group_id "${groupId}". Clear the browser catalogue cache and try again.`,
+            received_group_id: groupId
+          });
+        }
+
+        const databaseGroupId = matchingRow.group_id;
         const { data, error } = await supabase
           .from(TABLE_NAME)
           .update(updatePayload)
-          .eq("group_id", groupId)
+          .eq("group_id", databaseGroupId)
           .select();
 
         if (error) {
@@ -329,9 +364,18 @@ exports.handler = async (event) => {
           });
         }
         if (!data || data.length === 0) {
-          return json(404, { ok: false, error: `No product was found with group_id "${groupId}".` });
+          return json(404, {
+            ok: false,
+            error: `The product was located but could not be updated for group_id "${groupId}".`
+          });
         }
-        return json(200, { ok: true, count: data.length, product: data[0], message: "Product updated successfully." });
+        return json(200, {
+          ok: true,
+          count: data.length,
+          product: data[0],
+          matched_group_id: String(databaseGroupId),
+          message: "Product updated successfully."
+        });
       } catch (error) {
         console.error("Unexpected product update error:", error);
         return json(500, { ok: false, error: error instanceof Error ? error.message : "Unexpected database update error." });
@@ -404,5 +448,3 @@ exports.handler = async (event) => {
 
   return json(405, { ok: false, error: "Method not allowed" });
 };
-
-// End of product-catalog.js

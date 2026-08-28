@@ -2013,16 +2013,9 @@ function renderCartModal() {
         </div>
 
         <div class="field" style="margin-top:1rem; padding:0.85rem; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,0.6); box-sizing:border-box;">
-          <label style="font-weight:700; margin-bottom:0.6rem; display:block;">Payment Option</label>
-          <div style="display:flex; flex-direction:column; gap:0.6rem;">
-            <label style="display:flex; align-items:center; gap:0.55rem; font-size:0.9rem; cursor:pointer;">
-              <input type="radio" name="paymentOption" value="stripe" checked />
-              <span>Credit / Debit Card (Stripe Checkout)</span>
-            </label>
-            <label style="display:flex; align-items:center; gap:0.55rem; font-size:0.9rem; cursor:pointer;">
-              <input type="radio" name="paymentOption" value="bank" />
-              <span>Direct Bank Deposit</span>
-            </label>
+          <label style="font-weight:700; margin-bottom:0.4rem; display:block;">Payment Option</label>
+          <div style="display:flex; align-items:center; gap:0.55rem; font-size:0.9rem; color:var(--fg);">
+            <span>💳 Credit / Debit Card (Stripe Secure Checkout)</span>
           </div>
         </div>
 
@@ -2274,59 +2267,25 @@ async function placeOrder(rows, itemsTotal) {
   ].join("%0D%0A");
 
   const plainBody = decodeURIComponent(body);
-  const paymentOption = document.querySelector('input[name="paymentOption"]:checked')?.value || "stripe";
-
-  if (paymentOption === "stripe") {
-    try {
-      const res = await fetch(STRIPE_SESSION_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: emailItems,
-          shipping_cost: shippingCost,
-          customer_email: email,
-          order_payload: payload
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.ok || !data.url) {
-        throw new Error(data.error || "Could not initiate Stripe checkout.");
-      }
-
-      // Record order & send email before redirecting to Stripe
-      await sendOrderEmailSecure({
-        order_id: orderId,
-        created_utc: payload.created_utc,
-        customer_name: name,
-        customer_email: email,
-        customer_phone: phone,
-        address,
-        items_total: itemsTotal,
-        shipping_method: shippingTitle,
-        shipping_cost: shippingCost,
-        total: grandTotal,
-        items: emailItems,
-        body: plainBody
-      });
-
-      clearCart();
-      window.location.href = data.url;
-      return;
-    } catch (err) {
-      if (placeOrderBtn) {
-        placeOrderBtn.disabled = false;
-        placeOrderBtn.textContent = "Pay & Place order";
-      }
-      if (backToCartBtn) {
-        backToCartBtn.disabled = false;
-      }
-      messageWrap.innerHTML = `<p class="notice error">Stripe payment error: ${escapeHtml(err.message)}</p>`;
-      return;
-    }
-  }
 
   try {
+    const res = await fetch(STRIPE_SESSION_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: emailItems,
+        shipping_cost: shippingCost,
+        customer_email: email,
+        order_payload: payload
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.ok || !data.url) {
+      throw new Error(data.error || "Could not initiate Stripe checkout.");
+    }
+
+    // Record order & send email before redirecting to Stripe
     await sendOrderEmailSecure({
       order_id: orderId,
       created_utc: payload.created_utc,
@@ -2341,15 +2300,19 @@ async function placeOrder(rows, itemsTotal) {
       items: emailItems,
       body: plainBody
     });
-  } catch {
+
+    clearCart();
+    window.location.href = data.url;
+    return;
+  } catch (err) {
     if (placeOrderBtn) {
       placeOrderBtn.disabled = false;
-      placeOrderBtn.textContent = "Place order";
+      placeOrderBtn.textContent = "Pay & Place order";
     }
     if (backToCartBtn) {
       backToCartBtn.disabled = false;
     }
-    messageWrap.innerHTML = '<p class="notice error">Could not send order email from server. Please try again in a moment.</p>';
+    messageWrap.innerHTML = `<p class="notice error">Stripe payment error: ${escapeHtml(err.message)}</p>`;
     return;
   }
 

@@ -1302,8 +1302,6 @@ function renderProductDetails(productId) {
         </div>
         <img id="detailMainImage" class="detail-carousel-image" src="${escapeHtml(imageUrls[0])}" alt="${escapeHtml(cleanTitle)}" />
         ${imageUrls.length > 1 ? `
-          <button id="detailPrevBtn" class="detail-arrow detail-arrow-prev" type="button" aria-label="Previous image"><span aria-hidden="true">˂</span></button>
-          <button id="detailNextBtn" class="detail-arrow detail-arrow-next" type="button" aria-label="Next image"><span aria-hidden="true">˃</span></button>
           <span id="detailCounter" class="detail-counter">1 / ${imageUrls.length}</span>
           <div class="detail-dots" aria-label="Choose product image">
             ${imageUrls.map((_, index) => `<button type="button" class="detail-dot ${index === 0 ? "active" : ""}" data-detail-dot="${index}" aria-label="Show image ${index + 1}"></button>`).join("")}
@@ -1342,8 +1340,28 @@ function renderProductDetails(productId) {
       .detail-arrow:hover{transform:translateY(-50%) scale(1.06)}
       .detail-arrow-prev{left:14px}.detail-arrow-next{right:14px}
       .detail-counter{position:absolute;right:14px;bottom:14px;padding:.42rem .72rem;border-radius:999px;background:rgba(25,19,16,.76);color:#fff;font-size:.82rem;font-weight:700}
-      .detail-dots{position:absolute;bottom:18px;left:50%;display:flex;gap:7px;transform:translateX(-50%)}
-      .detail-dot{width:10px;height:10px;min-width:10px;padding:0;border:1px solid #fff;border-radius:50%;background:rgba(40,30,25,.42);cursor:pointer}.detail-dot.active{background:#fff;transform:scale(1.25)}
+      .detail-dots{position:absolute;
+        bottom:50px;
+        left:50%;
+        display:flex;
+        gap:8px;
+        transform:translateX(-50%);
+        z-index:5;}
+      .detail-dot{
+        width:10px;
+        height:10px;
+        min-width:10px;
+        padding:0;
+        border:1px solid rgba(255,255,255,0.9);
+        border-radius:50%;
+        background:rgba(40,30,25,.45);
+        cursor:pointer;
+      }
+
+      .detail-dot.active{
+        background:#fff;
+        transform:scale(1.25);
+      }
       .detail-thumbnails{display:flex;gap:10px;margin-top:14px;padding-bottom:4px;overflow-x:auto}
       .detail-thumb{flex:0 0 auto;padding:2px;border:2px solid transparent;border-radius:10px;background:transparent;cursor:pointer}.detail-thumb.active{border-color:var(--brand,#7b916f)}
       .detail-thumb img{display:block;width:72px;height:72px;border-radius:7px;object-fit:cover}
@@ -1381,8 +1399,20 @@ function renderProductDetails(productId) {
         .detail-arrow{width:32px;height:32px;font-size:1rem;box-shadow:0 3px 10px rgba(0,0,0,.18)}
         .detail-arrow-prev{left:6px}.detail-arrow-next{right:6px}
         .detail-counter{right:7px;bottom:8px;padding:.27rem .48rem;font-size:.68rem}
-        .detail-dots{bottom:11px;gap:5px}
-        .detail-dot{width:7px;height:7px;min-width:7px}
+        .detail-dots{
+          bottom:42px;
+          gap:6px;
+          z-index:10;
+        }
+        .detail-dot{
+          width:7px;
+          height:7px;
+          min-width:7px;
+          min-height:7px !important;
+          padding:0 !important;
+          margin:0;
+          flex:0 0 7px;
+        }
         .detail-thumbnails{gap:6px;scrollbar-width:thin}
         .detail-thumb{padding:1px;border-radius:8px}
         .detail-thumb img{width:49px;height:49px;border-radius:6px}

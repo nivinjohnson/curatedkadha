@@ -2511,6 +2511,10 @@ function renderStockEditor(filteredRows) {
 
       <div class="stock-editor-form">
         <div class="field">
+          <label for="seTitle">Product title</label>
+          <input id="seTitle" type="text" value="${escapeHtml(current.title || "")}" />
+        </div>
+        <div class="field">
           <label for="seDescription">Description</label>
           <textarea id="seDescription" rows="8">${escapeHtml(current.description)}</textarea>
         </div>
@@ -2559,7 +2563,17 @@ function renderStockEditor(filteredRows) {
     const orderedMentions = SIZE_ORDER.filter((size) => availableSizesSelected.includes(size) || soldSizesSelected.includes(size));
     const orderedSold = SIZE_ORDER.filter((size) => soldSizesSelected.includes(size));
 
+    const title = document.getElementById("seTitle").value.trim();
+    if (!title) {
+      const messageNode = document.getElementById("stockSaveMessage");
+      if (messageNode) {
+        messageNode.innerHTML = '<p class="notice error">Please enter a product title.</p>';
+      }
+      document.getElementById("seTitle").focus();
+      return;
+    }
     const patch = {
+      title,
       description,
       size_mentions: orderedMentions.join(";"),
       sold_sizes: orderedSold.join(";"),

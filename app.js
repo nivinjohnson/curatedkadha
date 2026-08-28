@@ -1158,8 +1158,8 @@ function renderShop() {
               📘 Curated Kadha
             </a>
             <span class="footer-separator">|</span>
-            <a href="mailto:curatedkadha@gmail.com">
-              ✉️ curatedkadha@gmail.com
+            <a href="mailto:info@curatedkadha.com">
+              ✉️ info@curatedkadha.com
             </a>
           </div>
         </footer>

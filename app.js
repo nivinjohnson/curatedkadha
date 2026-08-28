@@ -109,6 +109,8 @@ const state = {
 
 const app = document.getElementById("app");
 let shopLoadObserver = null;
+let pendingHomeSectionId = "";
+let pendingHomeSectionAttempts = 0;
 installWideScreenBannerStyles();
 
 start();
@@ -1145,7 +1147,7 @@ function renderShop() {
         <div id="shopLoadMoreWrap" class="field"></div>
       </section>
 
-      <section class="about-wrap">
+      <section class="about-wrap" id="aboutSection">
         <article class="about-content">
           <div class="about-media">
             ${aboutPhotoMarkup}
@@ -1170,7 +1172,32 @@ function renderShop() {
             </p>
           </div>
         </article>
-        <!-- Removed duplicate closing article tag -->
+
+        <details class="detail-size-chart-details" id="homeSizeChart" style="margin-top: 1.25rem;">
+          <summary class="detail-size-chart-summary">
+            <span>View Size Chart</span>
+          </summary>
+          <div class="detail-size-chart-body">
+            <img src="static/Size%20Chart.jpeg" alt="Size Chart" class="detail-size-chart-img" loading="lazy" />
+          </div>
+        </details>
+
+        <details class="detail-size-chart-details" id="homePolicy" style="margin-top: 0.65rem;">
+          <summary class="detail-size-chart-summary">
+            <span>Returns, Refunds &amp; Exchanges Policy</span>
+          </summary>
+          <div class="detail-size-chart-body" style="text-align:left; font-size:0.88rem; line-height:1.6; color:#4a423a;">
+            <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Change of Mind</strong>
+            <p style="margin:0 0 0.75rem;">We do not offer refunds, exchanges, or store credits for change-of-mind purchases. Please choose carefully before placing your order.</p>
+            
+            <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Faulty, Damaged, or Incorrect Items</strong>
+            <p style="margin:0 0 0.75rem;">If an item arrives damaged, faulty, or is not as described, you may be entitled to a repair, replacement, or refund under the Consumer Guarantees Act 1993. Please contact us within a reasonable time of discovering the issue and provide your order number and photos of the item.</p>
+            
+            <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Consumer Guarantees Act</strong>
+            <p style="margin:0;">Nothing in this policy limits or excludes your rights under the Consumer Guarantees Act 1993 or any other applicable New Zealand consumer laws.</p>
+          </div>
+        </details>
+
         <footer class="about-footer">
           <div class="footer-social-row">
             <a href="https://www.instagram.com/curatedkadha/" target="_blank" rel="noopener noreferrer">
@@ -1197,12 +1224,103 @@ function renderShop() {
     </section>
   `;
 
+  initHamburgerMenu();
   updateCartCount();
   bindShopFilterHandlers();
   renderShopGrid();
+  collapseHomeExpanders();
+  runPendingHomeSectionNavigation();
   if (state.isCartModalOpen) {
     openCartModal();
   }
+}
+
+function collapseHomeExpanders() {
+  const sizeDetails = document.getElementById("homeSizeChart");
+  const policyDetails = document.getElementById("homePolicy");
+  if (sizeDetails && sizeDetails.tagName === "DETAILS") {
+    sizeDetails.open = false;
+  }
+  if (policyDetails && policyDetails.tagName === "DETAILS") {
+    policyDetails.open = false;
+  }
+}
+
+function requestHomeSectionNavigation(sectionId) {
+  pendingHomeSectionId = String(sectionId || "").trim();
+  pendingHomeSectionAttempts = 0;
+
+  if (!pendingHomeSectionId) {
+    return;
+  }
+
+  if (location.hash !== "#/shop") {
+    location.hash = "#/shop";
+    return;
+  }
+
+  const fullCount = filterProducts().length;
+  if (state.visibleCount < fullCount) {
+    state.visibleCount = fullCount;
+    renderShop();
+    return;
+  }
+
+  runPendingHomeSectionNavigation();
+}
+
+function runPendingHomeSectionNavigation() {
+  if (!pendingHomeSectionId) {
+    return;
+  }
+
+  const targetId = pendingHomeSectionId;
+  const target = document.getElementById(targetId);
+  const aboutSection = document.getElementById("aboutSection");
+
+  if (!target || !aboutSection) {
+    if (pendingHomeSectionAttempts >= 30) {
+      pendingHomeSectionId = "";
+      pendingHomeSectionAttempts = 0;
+      return;
+    }
+    pendingHomeSectionAttempts += 1;
+    setTimeout(runPendingHomeSectionNavigation, 80);
+    return;
+  }
+
+  collapseHomeExpanders();
+
+  const computeTop = (el, offset = 12) => {
+    const y = window.scrollY + el.getBoundingClientRect().top - offset;
+    const maxTop = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    return Math.max(0, Math.min(y, maxTop));
+  };
+
+  window.scrollTo({ top: computeTop(aboutSection), behavior: "auto" });
+
+  const finalTarget = targetId === "aboutSection" ? aboutSection : target;
+  if (target.tagName === "DETAILS") {
+    target.open = true;
+  }
+
+  const smoothToFinal = () => {
+    if (target.tagName === "DETAILS") {
+      target.open = true;
+    }
+    window.scrollTo({ top: computeTop(finalTarget), behavior: "smooth" });
+  };
+
+  requestAnimationFrame(() => {
+    smoothToFinal();
+    setTimeout(smoothToFinal, 280);
+    setTimeout(() => {
+      window.scrollTo({ top: computeTop(finalTarget), behavior: "auto" });
+    }, 700);
+  });
+
+  pendingHomeSectionId = "";
+  pendingHomeSectionAttempts = 0;
 }
 
 function bindShopFilterHandlers() {
@@ -1264,6 +1382,69 @@ function bindShopFilterHandlers() {
     });
   }
 
+}
+
+function initHamburgerMenu() {
+  const hamburgerBtn = document.getElementById("hamburgerBtn");
+  const navDropdownMenu = document.getElementById("navDropdownMenu");
+  const navAboutBtn = document.getElementById("navAboutBtn");
+  const navShopBtn = document.getElementById("navShopBtn");
+  const navSizeChartBtn = document.getElementById("navSizeChartBtn");
+  const navPolicyBtn = document.getElementById("navPolicyBtn");
+
+  if (!hamburgerBtn || !navDropdownMenu) return;
+
+  const toggleMenu = (show) => {
+    const open = typeof show === "boolean" ? show : !navDropdownMenu.classList.contains("open");
+    navDropdownMenu.classList.toggle("open", open);
+    hamburgerBtn.classList.toggle("open", open);
+    hamburgerBtn.setAttribute("aria-expanded", String(open));
+    navDropdownMenu.setAttribute("aria-hidden", String(!open));
+  };
+
+  hamburgerBtn.onclick = (e) => {
+    e.stopPropagation();
+    toggleMenu();
+  };
+
+  if (!document.body.dataset.ckHamburgerBound) {
+    document.addEventListener("click", (e) => {
+      if (!navDropdownMenu.contains(e.target) && !hamburgerBtn.contains(e.target)) {
+        toggleMenu(false);
+      }
+    });
+    document.body.dataset.ckHamburgerBound = "1";
+  }
+
+  const scrollToAndOpen = (elementId) => {
+    toggleMenu(false);
+    requestHomeSectionNavigation(elementId);
+  };
+
+  if (navAboutBtn) {
+    navAboutBtn.onclick = (e) => {
+      e.preventDefault();
+      scrollToAndOpen("aboutSection");
+    };
+  }
+
+  if (navSizeChartBtn) {
+    navSizeChartBtn.onclick = (e) => {
+      e.preventDefault();
+      scrollToAndOpen("homeSizeChart");
+    };
+  }
+
+  if (navPolicyBtn) {
+    navPolicyBtn.onclick = (e) => {
+      e.preventDefault();
+      scrollToAndOpen("homePolicy");
+    };
+  }
+
+  if (navShopBtn) {
+    navShopBtn.onclick = () => toggleMenu(false);
+  }
 }
 
 
@@ -1975,8 +2156,9 @@ function renderCartModal() {
 
   const rows = getCartRows();
   const itemsTotal = rows.reduce((sum, row) => sum + row.line_total, 0);
-  const shippingCost = state.shippingMethod === "express" ? 9 : 7;
+  const shippingCost = state.shippingMethod === "express" ? 9 : (state.shippingMethod === "pickup" ? 0 : 7);
   const grandTotal = itemsTotal + shippingCost;
+  const shippingLabelText = state.shippingMethod === "express" ? "Express" : (state.shippingMethod === "pickup" ? "Pickup" : "Standard");
 
   modalRoot.innerHTML = `
     <div class="cart-modal-backdrop" id="cartModalBackdrop"></div>
@@ -2014,42 +2196,52 @@ function renderCartModal() {
         <div class="field" style="margin-top:1rem; padding:0.85rem; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,0.6); box-sizing:border-box;">
           <label style="font-weight:700; margin-bottom:0.6rem; display:block;">Shipping Options</label>
           <div style="display:flex; flex-direction:column; gap:0.6rem;">
-            <label style="display:flex; justify-content:space-between; align-items:center; width:100%; box-sizing:border-box; font-size:0.9rem; cursor:pointer; padding:0.6rem 0.85rem; border:1px solid var(--line); border-radius:6px; background:#fff;">
-              <span style="display:inline-flex; align-items:center; gap:0.55rem;">
-                <input type="radio" name="shippingOption" value="normal" style="margin:0; vertical-align:middle;" ${state.shippingMethod === "normal" ? "checked" : ""} />
-                <span style="line-height:1.2;">Standard Shipping</span>
+            <label class="shipping-option-card">
+              <span class="shipping-option-left">
+                <input type="radio" name="shippingOption" value="normal" ${state.shippingMethod === "normal" ? "checked" : ""} />
+                <span class="shipping-option-title">Standard Shipping</span>
               </span>
-              <strong style="color:var(--brand); line-height:1.2; text-align:right; font-variant-numeric:tabular-nums;">$7.00</strong>
+              <strong class="shipping-option-price">$7.00</strong>
             </label>
-            <label style="display:flex; justify-content:space-between; align-items:center; width:100%; box-sizing:border-box; font-size:0.9rem; cursor:pointer; padding:0.6rem 0.85rem; border:1px solid var(--line); border-radius:6px; background:#fff;">
-              <span style="display:inline-flex; align-items:center; gap:0.55rem;">
-                <input type="radio" name="shippingOption" value="express" style="margin:0; vertical-align:middle;" ${state.shippingMethod === "express" ? "checked" : ""} />
-                <span style="line-height:1.2;">Express Shipping</span>
+            <label class="shipping-option-card">
+              <span class="shipping-option-left">
+                <input type="radio" name="shippingOption" value="express" ${state.shippingMethod === "express" ? "checked" : ""} />
+                <span class="shipping-option-title">Express Shipping</span>
               </span>
-              <strong style="color:var(--brand); line-height:1.2; text-align:right; font-variant-numeric:tabular-nums;">$9.00</strong>
+              <strong class="shipping-option-price">$9.00</strong>
             </label>
+            <label class="shipping-option-card">
+              <span class="shipping-option-left">
+                <input type="radio" name="shippingOption" value="pickup" ${state.shippingMethod === "pickup" ? "checked" : ""} />
+                <span class="shipping-option-title">Local Pickup</span>
+              </span>
+              <strong class="shipping-option-price">Free</strong>
+            </label>
+          </div>
+          <div id="pickupInfoNotice" style="display:${state.shippingMethod === "pickup" ? "block" : "none"}; margin-top:0.65rem; padding:0.6rem 0.75rem; border-radius:6px; background:#f0f4ee; border:1px solid #cbd6c3; font-size:0.85rem; color:#284521; font-weight:500;">
+            DM <strong>@curatedkadha</strong> on Instagram for pickup details.
           </div>
         </div>
 
-        <div class="checkout-summary" style="margin:1rem 0; padding:0.85rem; border-radius:8px; background:var(--brand-soft,#f4f7f2); border:1px solid #d5e0cf;">
-          <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.9rem;">
+        <div class="checkout-summary" style="margin:1.35rem 0; padding:1.1rem; border-radius:10px; background:var(--brand-soft,#f4f7f2); border:1px solid #d5e0cf;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem; font-size:0.92rem;">
             <span>Items Subtotal:</span>
-            <span>${formatMoney(itemsTotal)}</span>
+            <span style="font-weight:600;">${formatMoney(itemsTotal)}</span>
           </div>
-          <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem; font-size:0.9rem;">
-            <span>Shipping (<span id="shippingSummaryLabel">${state.shippingMethod === "express" ? "Express" : "Standard"}</span>):</span>
-            <span id="shippingSummaryCost">${formatMoney(shippingCost)}</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.65rem; font-size:0.92rem;">
+            <span>Shipping (<span id="shippingSummaryLabel">${shippingLabelText}</span>):</span>
+            <span id="shippingSummaryCost" style="font-weight:600;">${formatMoney(shippingCost)}</span>
           </div>
-          <div style="display:flex; justify-content:space-between; font-weight:700; font-size:1.1rem; border-top:1px solid #c4d4bd; padding-top:0.35rem; margin-top:0.35rem; color:#1c140d;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:1.2rem; border-top:1.5px solid #c4d4bd; padding-top:0.75rem; margin-top:0.65rem; color:#1c140d;">
             <span>Total:</span>
-            <span id="grandTotalSummaryCost">${formatMoney(grandTotal)}</span>
+            <span id="grandTotalSummaryCost" style="color:var(--brand); font-size:1.25rem;">${formatMoney(grandTotal)}</span>
           </div>
         </div>
 
         <div class="field" style="margin-top:1rem; padding:0.85rem; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,0.6); box-sizing:border-box;">
           <label style="font-weight:700; margin-bottom:0.4rem; display:block;">Payment Option</label>
           <div style="display:flex; align-items:center; gap:0.55rem; font-size:0.9rem; color:var(--fg);">
-            <span>💳 Credit / Debit Card (Stripe Secure Checkout)</span>
+            <span>💳 Credit / Debit Card (Stripe Checkout)</span>
           </div>
         </div>
 
@@ -2198,16 +2390,19 @@ function renderCartModal() {
     radio.addEventListener("change", (e) => {
       state.shippingMethod = e.target.value;
       const isExpress = state.shippingMethod === "express";
-      const cost = isExpress ? 9 : 7;
+      const isPickup = state.shippingMethod === "pickup";
+      const cost = isExpress ? 9 : (isPickup ? 0 : 7);
       const newGrandTotal = itemsTotal + cost;
       
       const label = document.getElementById("shippingSummaryLabel");
       const costSpan = document.getElementById("shippingSummaryCost");
       const grandTotalSpan = document.getElementById("grandTotalSummaryCost");
-      
-      if (label) label.textContent = isExpress ? "Express" : "Standard";
+      const pickupNotice = document.getElementById("pickupInfoNotice");
+
+      if (label) label.textContent = isExpress ? "Express" : (isPickup ? "Pickup" : "Standard");
       if (costSpan) costSpan.textContent = formatMoney(cost);
       if (grandTotalSpan) grandTotalSpan.textContent = formatMoney(newGrandTotal);
+      if (pickupNotice) pickupNotice.style.display = isPickup ? "block" : "none";
     });
   });
 
@@ -2255,9 +2450,9 @@ async function placeOrder(rows, itemsTotal) {
     backToCartBtn.disabled = true;
   }
 
-  const shippingMethod = state.shippingMethod === "express" ? "express" : "normal";
-  const shippingCost = shippingMethod === "express" ? 9 : 7;
-  const shippingTitle = shippingMethod === "express" ? "Express Shipping" : "Normal Shipping";
+  const shippingMethod = state.shippingMethod === "express" ? "express" : (state.shippingMethod === "pickup" ? "pickup" : "normal");
+  const shippingCost = shippingMethod === "express" ? 9 : (shippingMethod === "pickup" ? 0 : 7);
+  const shippingTitle = shippingMethod === "express" ? "Express Shipping" : (shippingMethod === "pickup" ? "Local Pickup" : "Normal Shipping");
   const grandTotal = itemsTotal + shippingCost;
 
   const orderId = String(Math.floor(10000 + Math.random() * 90000));

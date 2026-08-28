@@ -87,6 +87,7 @@ const state = {
   },
   filters: {
     sizeFilter: [],
+    stockFilter: "all",
     sortBy: "newest"
   },
   stockFilters: {
@@ -142,7 +143,106 @@ function installWideScreenBannerStyles() {
         height: clamp(500px, 36vw, 680px);
       }
     }
+    .shop-layout {
+      min-height: calc(100vh - 1.6rem);
+      display: flex;
+      flex-direction: column;
+    }
+    .about-wrap {
+      margin-top: auto;
+    }
+    .shop-grid-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .shop-grid-header p {
+      margin: 0;
+      color: #ffffff;
+      font-weight: 500;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+    }
+    #shopNavCartBtn {
+      flex: 0 0 auto;
+      width: auto;
+      min-width: 0;
+      min-height: 32px;
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .cart-pill-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      margin-left: 4px;
+      border-radius: 999px;
+      background: rgba(123, 145, 111, 0.16);
+    }
+    .about-footer {
+      margin-top: 1.25rem;
+      padding: 0.9rem 0;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: nowrap;
+      text-align: center;
+      color: #f5f2eb;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    }
+    .about-footer a,
+    .about-footer #footerLoginBtn {
+      color: #e5e0d3;
+      text-decoration: none;
+      white-space: nowrap;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .about-footer a:hover,
+    .about-footer #footerLoginBtn:hover {
+      text-decoration: underline;
+      color: #ffffff;
+    }
+    .footer-separator {
+      opacity: .6;
+      user-select: none;
+    }
+    .about-footer #footerLoginBtn {
+      background:none;
+      border:none;
+      padding:0;
+      margin:0;
+      min-height:0;
+      box-shadow:none;
+      cursor:pointer;
+    }
     @media (max-width: 700px) {
+      .about-footer {
+        gap: 0.4rem;
+        font-size: 0.8rem;
+      }
+      .about-footer a,
+      .about-footer #footerLoginBtn {
+        font-size: 0.8rem;
+      }
+      .shop-grid-header {
+        gap: 0.5rem;
+        margin-bottom: 0.6rem;
+      }
+      #shopNavCartBtn {
+        min-height: 30px;
+        padding: 0.32rem 0.65rem;
+        font-size: 0.78rem;
+      }
       :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > img,
       :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > picture > img,
       :is(.top-banner, .hero-banner, .home-banner, .banner, #topBanner, #heroBanner) > video {
@@ -280,16 +380,13 @@ function loadCatalogCache() {
     return [];
   }
 
-  return payload.products.map((product) => ({
-    ...product,
-    image_files: Array.isArray(product.image_files)
-      ? product.image_files
-      : parseImageFiles(product.image_files),
-    // Preserve the latest values saved in the database/cache. Do not
-    // overwrite stock fields by re-parsing old description text.
-    size_mentions: String(product.size_mentions || ""),
-    sold_sizes: String(product.sold_sizes || "")
-  }));
+  return payload.products.map((product) => {
+    const parsed = categorizeDescription(product.description || product.dress_description || "");
+    const parsedMentions = splitSizes(parsed.sizeMentions);
+    const parsedSold = splitSizes(parsed.soldSizes);
+    if (parsedMentions.length === 0) return product;
+    return { ...product, size_mentions: parsedMentions.join(";"), sold_sizes: parsedSold.join(";") };
+  });
 }
 
 function saveCatalogCache(products) {
@@ -425,19 +522,6 @@ function normalizeDate(raw) {
   }
   const date = new Date(raw);
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-}
-
-function toDatabaseTimestamp(value) {
-  if (value === null || value === undefined || value === "" || value === 0) {
-    return null;
-  }
-
-  const numericValue = typeof value === "number" ? value : Number(value);
-  const date = Number.isFinite(numericValue) && String(value).trim() !== ""
-    ? new Date(numericValue)
-    : new Date(value);
-
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function categorizeDescription(description) {
@@ -635,8 +719,6 @@ async function syncExcelDataToDatabase(options = {}) {
   // Format new products with joined image_files for database table insertion
   const payloadProducts = (newOnlyProducts.length > 0 ? newOnlyProducts : incomingProducts).map((item) => ({
     ...item,
-    // Supabase/PostgreSQL timestamp columns require a valid ISO timestamp or null.
-    product_date: toDatabaseTimestamp(item.product_date),
     image_files: Array.isArray(item.image_files) ? item.image_files.join(";") : String(item.image_files || "")
   }));
 
@@ -686,53 +768,25 @@ async function syncExcelDataToDatabase(options = {}) {
   };
 }
 
-async function updateProductInDatabase(groupId, patch) {
-  // Send only editable fields. In particular, do not send product_date,
-  // because editing stock should not alter the original catalogue date.
-  const databasePatch = {
-    description: String(patch.description || ""),
-    size_mentions: String(patch.size_mentions || ""),
-    sold_sizes: String(patch.sold_sizes || ""),
-    item_count: Number(patch.item_count || 0),
-    price: Number(patch.price || 0),
-    active: Boolean(patch.active),
-    caption_has_sold: Boolean(patch.caption_has_sold),
-    primary_image_file: String(patch.primary_image_file || ""),
-    image_files: Array.isArray(patch.image_files)
-      ? patch.image_files.join(";")
-      : String(patch.image_files || "")
-  };
-
+async function saveCatalogToServer(products) {
   const response = await fetch(CATALOG_API_URL, {
-    method: "POST",
+    method: "PUT",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      mode: "update",
-      group_id: String(groupId),
-      product: databasePatch
+      target_file: CATALOG_URL,
+      products: products.map((item) => ({
+        ...item,
+        image_files: Array.isArray(item.image_files) ? item.image_files.join(";") : String(item.image_files || "")
+      }))
     })
   });
-
-  const responseText = await response.text();
-  let result;
-
-  try {
-    result = responseText ? JSON.parse(responseText) : {};
-  } catch {
-    result = { error: responseText || "The server returned an invalid response." };
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Catalog update failed: ${response.status} ${errorText}`);
   }
-
-  if (!response.ok || result?.ok === false) {
-    throw new Error(
-      result?.error ||
-      result?.message ||
-      `Database update failed with HTTP ${response.status}.`
-    );
-  }
-
-  return result;
+  return response.json();
 }
 
 async function reloadCatalogFromFile(button, messageNode) {
@@ -1005,6 +1059,11 @@ function renderShop() {
           ${SIZE_ORDER.map((size) => `<option value="${size}" ${selectedSize === size ? "selected" : ""}>${formatSizeLabel(size)}</option>`).join("")}
         </select>
 
+        <select id="fStock" class="shop-filter-select">
+          <option value="available" ${state.filters.stockFilter === "available" ? "selected" : ""}>Available</option>
+          <option value="sold" ${state.filters.stockFilter === "sold" ? "selected" : ""}>Sold out</option>
+        </select>
+
         <select id="fSort" class="shop-filter-select">
           <option value="newest" ${state.filters.sortBy === "newest" ? "selected" : ""}>Newest</option>
           <option value="oldest" ${state.filters.sortBy === "oldest" ? "selected" : ""}>Oldest</option>
@@ -1012,15 +1071,13 @@ function renderShop() {
           <option value="priceHigh" ${state.filters.sortBy === "priceHigh" ? "selected" : ""}>Price high to low</option>
         </select>
 
-        <div class="shop-tools">
-          <button class="secondary" id="shopNavStockBtn" type="button">Login</button>
-          <button class="secondary" id="shopNavCartBtn" type="button">Cart (<span data-cart-count>0</span>)</button>
-        </div>
-
       </div>
 
       <section class="panel shop-grid-panel">
-        <p>${filtered.length} products found</p>
+        <div class="shop-grid-header">
+          <p>${filtered.length} products found</p>
+          <button class="secondary" id="shopNavCartBtn" type="button">Cart <span class="cart-pill-count" data-cart-count>0</span></button>
+        </div>
         <div id="shopGrid" class="grid"></div>
         <div id="shopLoadMoreWrap" class="field"></div>
       </section>
@@ -1031,20 +1088,38 @@ function renderShop() {
             ${aboutPhotoMarkup}
           </div>
           <div class="about-copy">
-            <h2>About Holland Designs Crochet</h2>
-            <p>Holland Designs Crochet is a family business run by Gilbert and Lisa van Klaveren, based in Auckland, New Zealand.</p>
-            <p>Lisa has been designing crochet patterns since 2008, with more than 700 original designs including blankets, garments, accessories and baby wear. On Etsy, her work speaks for itself: 140k+ sales, a 4.9-star rating from 18k reviews, and 17 years of loyal customers at <a href="https://www.etsy.com/nz/shop/hollanddesigns" target="_blank" rel="noreferrer">etsy.com/nz/shop/hollanddesigns</a>.</p>
-            <p>Quality printed crochet patterns have been hard to find in New Zealand. This website changes that. We showcase our handpicked collection of printed patterns, 226 of Lisa's most popular designs, printed locally on premium durable paper and ready to stock.</p>
-            <p>We partner with independent retailers across New Zealand who want to stock something made right here at home. Original patterns designed in Auckland, printed in New Zealand, and loved by crochet fans worldwide.</p>
-            <p>Interested in stocking our patterns? We'd love to hear from you. Contact us at <a href="mailto:contact@hdpublishing.co.nz">contact@hdpublishing.co.nz</a></p>
+            <p>Hey there!</p>
+            <p>I'm Chelsii</p>
+            <p>
+            Curated Kadha began as a spark of passion, a dream born from my love for meaningful design and the joy of discovering pieces that just feel right.
+            </p>
+            <p>
+            When I first thought about starting a business, I listed everything that truly inspired me, and fashion, with its blend of art, culture, and emotion, stood out.
+            </p>
+            <p>
+            At Curated Kadha, every piece tells a story of culture, craftsmanship, and conscious style. Rooted in a love for timeless design and thoughtful details, each piece is chosen to celebrate individuality and comfort, made for slow mornings, festive evenings, and everything in between.
+            </p>
+            <p>
+            Based in New Zealand, we work closely with artisans and small creatives to bring you unique, sustainable pieces. Most of our collections are carefully curated by us, while some are thoughtfully sourced from other creators, all chosen to share something truly special.
+            </p>
+            <p>
+            Curated pieces, thoughtfully chosen ✨
+            </p>
           </div>
         </article>
-        <footer class="about-footer">© Holland Designs Crochet · Wholesale enquiries: <a href="mailto:contact@hdpublishing.co.nz">contact@hdpublishing.co.nz</a></footer>
+        <!-- Removed duplicate closing article tag -->
+        <footer class="about-footer">
+          <div class="footer-line">
+            <a href="https://www.instagram.com/curatedkadha/" target="_blank" rel="noopener noreferrer">
+              📷 @curatedkadha
+            </a>
+            <span class="footer-separator">|</span>
+            <a href="#/stock" id="footerLoginBtn">Store Login</a>
+          </div>
+        </footer>
       </section>
-
       <div id="cartModalRoot"></div>
       <div id="imageViewerRoot"></div>
-
       <button id="backToTopBtn" class="back-to-top-pill" type="button" aria-label="Back to top">↑</button>
     </section>
   `;
@@ -1061,7 +1136,7 @@ function bindShopFilterHandlers() {
   const wire = (selector, fn, options = {}) => {
     const node = document.querySelector(selector);
     if (node) {
-      node.addEventListener("change", fn);
+      node.addEventListener("change", fn)
       if (options.liveInput && node.tagName === "INPUT" && node.type === "text") {
         node.addEventListener("input", fn);
       }
@@ -1074,14 +1149,20 @@ function bindShopFilterHandlers() {
     state.visibleCount = 24;
     renderShop();
   });
+  wire("#fStock", (event) => {
+    state.filters.stockFilter = event.target.value;
+    state.visibleCount = 24;
+    renderShop();
+  });
+
   wire("#fSort", (event) => {
     state.filters.sortBy = event.target.value;
     renderShop();
   });
 
-  const shopNavStock = document.getElementById("shopNavStockBtn");
-  if (shopNavStock) {
-    shopNavStock.addEventListener("click", () => {
+  const footerLoginBtn = document.getElementById("footerLoginBtn");
+  if (footerLoginBtn) {
+    footerLoginBtn.addEventListener("click", () => {
       location.hash = "#/stock";
     });
   }
@@ -1113,6 +1194,12 @@ function filterProducts() {
       const target = splitSizes(item.size_mentions);
       return target.some((size) => selected.has(size));
     });
+  }
+
+  if (state.filters.stockFilter === "available") {
+    result = result.filter((item) => !Boolean(item.caption_has_sold));
+  } else if (state.filters.stockFilter === "sold") {
+    result = result.filter((item) => Boolean(item.caption_has_sold));
   }
 
   const byDate = (item) => Number(item.product_date || 0);
@@ -1239,13 +1326,7 @@ function renderProductCard(item) {
   const images = item.image_files.length > 0 ? item.image_files : [""];
   const firstImage = imageUrl(images[0]);
   const sizeText = splitSizes(item.size_mentions).slice(0, 1).map(formatSizeLabel).join(" ");
-  const allSizes = splitSizes(item.size_mentions);
-  const soldSizes = splitSizes(item.sold_sizes);
-  // Mark the whole product sold out only when every listed size is sold.
-  const isSold =
-    allSizes.length > 0 &&
-    soldSizes.length > 0 &&
-    allSizes.every((size) => soldSizes.includes(size));
+  const isSold = Boolean(item.caption_has_sold);
   const dots = images.length > 1
     ? `<div class="card-dots">${images.map((_, idx) => `<span class="card-dot ${idx === 0 ? "active" : ""}" data-dot="${idx}"></span>`).join("")}</div>`
     : "";
@@ -1298,19 +1379,11 @@ function renderProductDetails(productId) {
   }
   const imageUrls = Array.from(new Set(imageFiles.map(imageUrl).filter(Boolean)));
   const parsedProductText = categorizeDescription(product.description || product.dress_description || "");
-  const databaseMentions = splitSizes(product.size_mentions);
-  const databaseSold = splitSizes(product.sold_sizes);
   const parsedMentions = splitSizes(parsedProductText.sizeMentions);
   const parsedSold = splitSizes(parsedProductText.soldSizes);
-
-  // Prefer the latest database stock fields. Description parsing is only
-  // a fallback for older products where a database field is genuinely absent.
-  const effectiveMentions = databaseMentions.length > 0
-    ? databaseMentions
-    : parsedMentions;
-  const effectiveSold = product.sold_sizes !== undefined && product.sold_sizes !== null
-    ? databaseSold
-    : parsedSold;
+  const effectiveMentions = parsedMentions.length ? parsedMentions : splitSizes(product.size_mentions);
+  const effectiveSold = parsedSold.length ? parsedSold : splitSizes(product.sold_sizes);
+  const mentionedSizes = new Set(effectiveMentions);
   const soldSizes = new Set(effectiveSold);
 
   const allSizesSet = new Set([...effectiveMentions, ...effectiveSold]);
@@ -1324,10 +1397,9 @@ function renderProductDetails(productId) {
   const availableSizes = sizes.filter((size) => !soldSizes.has(size));
   const soldSizesList = sizes.filter((size) => soldSizes.has(size));
   const availableSizeCount = availableSizes.length;
-  // Disable ordering only when every listed size is sold.
   const fullySoldOut =
-    sizes.length > 0 &&
-    availableSizeCount === 0;
+    Boolean(product.caption_has_sold) ||
+    (sizes.length > 0 && availableSizeCount === 0);
   const description = String(product.dress_description || product.description || "").trim();
   const cleanTitle = String(product.title || "Untitled product")
     .replace(/^\s*sold\s*out\s*[❌✖✕x-]*\s*/i, "")
@@ -1356,6 +1428,8 @@ function renderProductDetails(productId) {
         </div>
         <img id="detailMainImage" class="detail-carousel-image" src="${escapeHtml(imageUrls[0])}" alt="${escapeHtml(cleanTitle)}" />
         ${imageUrls.length > 1 ? `
+          <button id="detailPrevBtn" class="detail-arrow detail-arrow-prev" type="button" aria-label="Previous image"><span aria-hidden="true">˂</span></button>
+          <button id="detailNextBtn" class="detail-arrow detail-arrow-next" type="button" aria-label="Next image"><span aria-hidden="true">˃</span></button>
           <span id="detailCounter" class="detail-counter">1 / ${imageUrls.length}</span>
           <div class="detail-dots" aria-label="Choose product image">
             ${imageUrls.map((_, index) => `<button type="button" class="detail-dot ${index === 0 ? "active" : ""}" data-detail-dot="${index}" aria-label="Show image ${index + 1}"></button>`).join("")}
@@ -1381,11 +1455,11 @@ function renderProductDetails(productId) {
       .product-detail-page{max-width:1220px;margin:1rem auto 2rem;padding:0 1.25rem 2.5rem}
       .product-detail-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);gap:clamp(1.75rem,4.5vw,3.5rem);align-items:start}
       .detail-carousel{position:relative;display:grid;place-items:center;min-height:420px;overflow:hidden;border-radius:16px;background:#f5f3f1;touch-action:pan-y}
-      .detail-pill-actions{position:absolute;top:20px;right:12px;z-index:10;display:flex;flex-direction:column;gap:8px}
-      .detail-pill-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;min-width:30px;min-height:30px;padding:0;border:0;border-radius:999px;background:rgba(25,19,16,.76);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:pointer;transition:all .15s ease}
-      .detail-pill-btn:hover{background:rgba(25,19,16,.9);color:#fff;transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,.18)}
+      .detail-pill-actions{position:absolute;top:12px;right:12px;z-index:10;display:flex;flex-direction:column;gap:8px}
+      .detail-pill-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid rgba(0,0,0,0.09);border-radius:999px;background:rgba(255,255,255,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#332d27;box-shadow:0 2px 8px rgba(0,0,0,0.12);cursor:pointer;transition:all 0.15s ease}
+      .detail-pill-btn:hover{background:#ffffff;color:#000000;transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,0.18)}
       .detail-pill-btn:active{transform:scale(0.95)}
-      .detail-pill-btn.copied{background:#284521;color:#fff}
+      .detail-pill-btn.copied{background:#eef6eb;color:#284521;border-color:#84a97b}
       .detail-pill-close-x{font-size:0.78rem;font-weight:700;line-height:1}
       .detail-pill-link-sym{font-size:0.78rem;line-height:1}
       .detail-carousel-image{display:block;width:100%;height:min(68vh,700px);object-fit:contain;user-select:none}
@@ -1394,8 +1468,8 @@ function renderProductDetails(productId) {
       .detail-arrow:hover{transform:translateY(-50%) scale(1.06)}
       .detail-arrow-prev{left:14px}.detail-arrow-next{right:14px}
       .detail-counter{position:absolute;right:14px;bottom:14px;padding:.42rem .72rem;border-radius:999px;background:rgba(25,19,16,.76);color:#fff;font-size:.82rem;font-weight:700}
-      .detail-dots{position:absolute;bottom:50px;left:50%;display:flex;align-items:center;gap:8px;transform:translateX(-50%);z-index:5}
-      .detail-dot{width:10px;height:10px;min-width:10px;min-height:10px;padding:0;margin:0;flex:0 0 10px;line-height:0;border:1px solid rgba(255,255,255,.9);border-radius:50%;background:rgba(40,30,25,.45);cursor:pointer}.detail-dot.active{background:#fff;transform:scale(1.25)}
+      .detail-dots{position:absolute;bottom:18px;left:50%;display:flex;gap:7px;transform:translateX(-50%)}
+      .detail-dot{width:10px;height:10px;min-width:10px;padding:0;border:1px solid #fff;border-radius:50%;background:rgba(40,30,25,.42);cursor:pointer}.detail-dot.active{background:#fff;transform:scale(1.25)}
       .detail-thumbnails{display:flex;gap:10px;margin-top:14px;padding-bottom:4px;overflow-x:auto}
       .detail-thumb{flex:0 0 auto;padding:2px;border:2px solid transparent;border-radius:10px;background:transparent;cursor:pointer}.detail-thumb.active{border-color:var(--brand,#7b916f)}
       .detail-thumb img{display:block;width:72px;height:72px;border-radius:7px;object-fit:cover}
@@ -1426,15 +1500,15 @@ function renderProductDetails(productId) {
         .product-detail-page .panel{padding:.85rem;border-radius:12px}
         .product-detail-grid{gap:1.15rem}
         .detail-carousel{aspect-ratio:3/4;border-radius:11px}
-        .detail-pill-actions{top:16px;right:9px;gap:7px}
+        .detail-pill-actions{top:9px;right:9px;gap:7px}
         .detail-pill-btn{width:28px;height:28px}
         .detail-pill-close-x{font-size:0.72rem}
         .detail-pill-link-sym{font-size:0.72rem}
         .detail-arrow{width:32px;height:32px;font-size:1rem;box-shadow:0 3px 10px rgba(0,0,0,.18)}
         .detail-arrow-prev{left:6px}.detail-arrow-next{right:6px}
         .detail-counter{right:7px;bottom:8px;padding:.27rem .48rem;font-size:.68rem}
-        .detail-dots{bottom:42px;gap:6px;z-index:10}
-        .detail-dot{width:7px!important;height:7px!important;min-width:7px!important;min-height:7px!important;padding:0!important;margin:0;flex:0 0 7px;line-height:0}
+        .detail-dots{bottom:11px;gap:5px}
+        .detail-dot{width:7px;height:7px;min-width:7px}
         .detail-thumbnails{gap:6px;scrollbar-width:thin}
         .detail-thumb{padding:1px;border-radius:8px}
         .detail-thumb img{width:49px;height:49px;border-radius:6px}
@@ -1528,6 +1602,8 @@ function renderProductDetails(productId) {
   const previous = () => { if (imageUrls.length > 1) { currentIndex = (currentIndex - 1 + imageUrls.length) % imageUrls.length; paint(); } };
   const next = () => { if (imageUrls.length > 1) { currentIndex = (currentIndex + 1) % imageUrls.length; paint(); } };
 
+  document.getElementById("detailPrevBtn")?.addEventListener("click", previous);
+  document.getElementById("detailNextBtn")?.addEventListener("click", next);
   document.querySelectorAll("[data-detail-dot],[data-detail-thumb]").forEach((node) => {
     node.addEventListener("click", () => { currentIndex = Number(node.dataset.detailDot ?? node.dataset.detailThumb); paint(); });
   });
@@ -2455,37 +2531,13 @@ function renderStockEditor(filteredRows) {
   `;
 
 
-  // A size cannot be both available and sold. Selecting one state clears the other.
-  document.querySelectorAll("input[data-se-available]").forEach((availableInput) => {
-    availableInput.addEventListener("change", () => {
-      if (!availableInput.checked) return;
-      const size = availableInput.getAttribute("data-se-available");
-      const soldInput = document.querySelector(`input[data-se-sold="${cssEscape(size)}"]`);
-      if (soldInput) soldInput.checked = false;
-    });
-  });
-
-  document.querySelectorAll("input[data-se-sold]").forEach((soldInput) => {
-    soldInput.addEventListener("change", () => {
-      if (!soldInput.checked) return;
-      const size = soldInput.getAttribute("data-se-sold");
-      const availableInput = document.querySelector(`input[data-se-available="${cssEscape(size)}"]`);
-      if (availableInput) availableInput.checked = false;
-    });
-  });
-
   document.getElementById("saveStockBtn").addEventListener("click", async () => {
     const description = document.getElementById("seDescription").value;
     const availableSizesSelected = Array.from(document.querySelectorAll("input[data-se-available]:checked")).map((node) => node.getAttribute("data-se-available"));
     const soldSizesSelected = Array.from(document.querySelectorAll("input[data-se-sold]:checked")).map((node) => node.getAttribute("data-se-sold"));
 
-    // Sold takes priority if a size somehow appears in both selections.
-    const uniqueSoldSizes = new Set(soldSizesSelected);
-    const cleanAvailableSizes = availableSizesSelected.filter((size) => !uniqueSoldSizes.has(size));
-    const orderedMentions = SIZE_ORDER.filter((size) =>
-      cleanAvailableSizes.includes(size) || uniqueSoldSizes.has(size)
-    );
-    const orderedSold = SIZE_ORDER.filter((size) => uniqueSoldSizes.has(size));
+    const orderedMentions = SIZE_ORDER.filter((size) => availableSizesSelected.includes(size) || soldSizesSelected.includes(size));
+    const orderedSold = SIZE_ORDER.filter((size) => soldSizesSelected.includes(size));
 
     const patch = {
       description,
@@ -2494,10 +2546,7 @@ function renderStockEditor(filteredRows) {
       item_count: Number(document.getElementById("seItemCount").value || 0),
       price: Number(document.getElementById("sePrice").value || 0),
       active: document.getElementById("seActive").checked,
-      // Keep the whole-product sold flag true only when all listed sizes are sold.
-      caption_has_sold:
-        orderedMentions.length > 0 &&
-        orderedSold.length === orderedMentions.length,
+      caption_has_sold: document.getElementById("seCaptionSold").checked || orderedSold.length > 0,
       primary_image_file: document.getElementById("sePrimary").value.trim(),
       image_files: document.getElementById("seImages").value.split(";").map((part) => part.trim()).filter(Boolean)
     };
@@ -2505,17 +2554,12 @@ function renderStockEditor(filteredRows) {
     const saveButton = document.getElementById("saveStockBtn");
     const messageNode = document.getElementById("stockSaveMessage");
     const previousProducts = state.products;
-    const currentGroupId = String(current.group_id ?? "").trim();
-    const updatedProducts = state.products.map((item) =>
-      String(item.group_id ?? "").trim().toLowerCase() === currentGroupId.toLowerCase()
-        ? { ...item, ...patch }
-        : item
-    );
+    const updatedProducts = state.products.map((item) => item.group_id === current.group_id ? { ...item, ...patch } : item);
     saveButton.disabled = true;
-    saveButton.textContent = "Updating product...";
-    messageNode.innerHTML = '<p class="notice">Updating product in database...</p>';
+    saveButton.textContent = "Updating Excel...";
+    messageNode.innerHTML = '<p class="notice">Updating product_info/product_catalog.xlsx...</p>';
     try {
-      await updateProductInDatabase(currentGroupId, patch);
+      await saveCatalogToServer(updatedProducts);
       state.products = updatedProducts;
       state.stockEdits = {};
       localStorage.removeItem(EDITS_KEY);
@@ -2523,13 +2567,13 @@ function renderStockEditor(filteredRows) {
       renderStock();
       const refreshedMessage = document.getElementById("stockSaveMessage");
       if (refreshedMessage) {
-        refreshedMessage.innerHTML = '<p class="notice">Product updated successfully in the database.</p>';
+        refreshedMessage.innerHTML = '<p class="notice">Product updated successfully in product_info/product_catalog.xlsx.</p>';
       }
     } catch (error) {
       state.products = previousProducts;
       saveButton.disabled = false;
       saveButton.textContent = "Update product";
-      messageNode.innerHTML = `<p class="notice error">Could not update the product: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+      messageNode.innerHTML = `<p class="notice error">Could not update the Excel file: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
     }
   });
 }

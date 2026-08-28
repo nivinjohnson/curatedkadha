@@ -1527,8 +1527,8 @@ function renderProductDetails(productId) {
         .detail-arrow{width:32px;height:32px;font-size:1rem;box-shadow:0 3px 10px rgba(0,0,0,.18)}
         .detail-arrow-prev{left:6px}.detail-arrow-next{right:6px}
         .detail-counter{right:7px;bottom:8px;padding:.27rem .48rem;font-size:.68rem}
-        .detail-dots{bottom:11px;gap:5px}
-        .detail-dot{width:7px;height:7px;min-width:7px}
+        .detail-dots{bottom:11px;gap:5px;align-items:center;height:7px;min-height:7px;max-height:7px}
+        .detail-dot{width:7px!important;height:7px!important;min-width:7px!important;min-height:7px!important;max-width:7px!important;max-height:7px!important;padding:0!important;margin:0!important;line-height:0!important;flex:0 0 7px!important;appearance:none;-webkit-appearance:none}
         .detail-thumbnails{gap:6px;scrollbar-width:thin}
         .detail-thumb{padding:1px;border-radius:8px}
         .detail-thumb img{width:49px;height:49px;border-radius:6px}

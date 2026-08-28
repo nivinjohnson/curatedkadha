@@ -278,6 +278,24 @@ p {
   box-shadow: 0 2px 8px rgba(114, 138, 102, 0.3);
 }
 
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2.5px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  border-top-color: #ffffff;
+  animation: ck-spin 0.8s ease-in-out infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+@keyframes ck-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .shop-search-wrap {
   width: 100%;
   min-width: 100%;

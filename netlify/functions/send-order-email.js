@@ -241,12 +241,10 @@ exports.handler = async (event) => {
     html: htmlBody
   };
 
-  if (bccEmail) {
-    message.bcc = bccEmail;
-  }
-
   // Save order to Supabase orders table and update product inventory
   const supabase = getSupabaseClient();
+  const soldOutWarnings = [];
+
   if (supabase) {
     try {
       await supabase.from("orders").insert([{
@@ -275,7 +273,7 @@ exports.handler = async (event) => {
 
         const { data: currentProduct, error: fetchErr } = await supabase
           .from("product_info")
-          .select("group_id, item_count, sold_sizes, caption_has_sold")
+          .select("group_id, title, item_count, sold_sizes, caption_has_sold")
           .eq("group_id", groupId)
           .single();
 
@@ -291,10 +289,20 @@ exports.handler = async (event) => {
           currentSoldSizes.push(orderedSize);
         }
 
+        const isNowSoldOut = newCount === 0;
+
+        if (isNowSoldOut) {
+          soldOutWarnings.push({
+            title: currentProduct.title || item.title || groupId,
+            group_id: groupId,
+            size: orderedSize
+          });
+        }
+
         const updatePayload = {
           item_count: newCount,
           sold_sizes: currentSoldSizes.join(";"),
-          caption_has_sold: newCount === 0 ? true : currentProduct.caption_has_sold,
+          caption_has_sold: isNowSoldOut ? true : currentProduct.caption_has_sold,
           updated_at: new Date().toISOString()
         };
 
@@ -306,6 +314,40 @@ exports.handler = async (event) => {
     } catch (dbErr) {
       console.error("Failed to update orders or inventory in Supabase:", dbErr);
     }
+  }
+
+  // Construct store owner notifications
+  const storeOwnerEmail = process.env.ORDER_BCC_EMAIL || process.env.ORDER_SMTP_USER || smtpUser;
+
+  const bccRecipients = [bccEmail].filter(Boolean);
+  if (storeOwnerEmail && !bccRecipients.includes(storeOwnerEmail) && storeOwnerEmail !== toEmail) {
+    bccRecipients.push(storeOwnerEmail);
+  }
+
+  if (bccRecipients.length > 0) {
+    message.bcc = bccRecipients.join(", ");
+  }
+
+  if (soldOutWarnings.length > 0) {
+    const warningTextLines = [
+      "",
+      "⚠️ SOLD OUT WARNING ⚠️",
+      "The following product(s) have reached 0 stock and are now marked as SOLD OUT:",
+      ...soldOutWarnings.map((w) => `- ${w.title} (Group ID: ${w.group_id})${w.size ? ` [Size: ${w.size}]` : ""}`),
+      ""
+    ];
+    message.text = message.text + "\n" + warningTextLines.join("\n");
+
+    const warningHtml = `
+      <div style="margin:20px 24px 0;padding:16px 20px;background:#fff2f0;border:1px solid #f5c4c0;border-radius:12px;color:#900c0c;">
+        <strong style="font-size:16px;display:block;margin-bottom:8px;">⚠️ SOLD OUT WARNING</strong>
+        <p style="margin:0 0 8px;font-size:14px;line-height:1.5;">The following product(s) reached 0 quantity with this order and are now marked as <strong>SOLD OUT</strong>:</p>
+        <ul style="margin:0;padding-left:20px;font-size:14px;">
+          ${soldOutWarnings.map((w) => `<li><strong>${escapeHtml(w.title)}</strong> (${escapeHtml(w.group_id)}) ${w.size ? `[Size: ${escapeHtml(w.size)}]` : ""}</li>`).join("")}
+        </ul>
+      </div>
+    `;
+    message.html = message.html.replace("</table>\n    </td>\n    </tr>\n    </table>\n    </body>", warningHtml + "</table>\n    </td>\n    </tr>\n    </table>\n    </body>");
   }
 
   try {

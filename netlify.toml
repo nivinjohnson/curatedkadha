@@ -13,3 +13,8 @@
   from = "/api/send-order-email"
   to = "/.netlify/functions/send-order-email"
   status = 200
+
+[[redirects]]
+  from = "/api/create-stripe-session"
+  to = "/.netlify/functions/create-stripe-session"
+  status = 200

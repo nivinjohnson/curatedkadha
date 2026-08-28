@@ -7,6 +7,7 @@ const INSTAGRAM_SOURCE_URL = "data_from_insta/instagram_media_curatedkadha_20260
 const SECURE_ORDER_API_URL = (window.CK_CONFIG && window.CK_CONFIG.secureOrderApiUrl)
   ? String(window.CK_CONFIG.secureOrderApiUrl).trim()
   : `${location.origin}/api/send-order-email`;
+const STRIPE_SESSION_API_URL = `${location.origin}/api/create-stripe-session`;
 const CATALOG_CACHE_KEY = "ck_catalog_cache_v1";
 const CART_KEY = "ck_cart";
 const EDITS_KEY = "ck_stock_edits";
@@ -96,6 +97,7 @@ const state = {
     size: "all"
   },
   stockTab: "products",
+  ordersTabFilter: "all",
   ordersList: [],
   shippingMethod: "normal",
   isCartModalOpen: false,
@@ -878,6 +880,7 @@ function normalizeCatalogProduct(product) {
 function isProductSoldOut(item) {
   if (!item || !boolFromCell(item.active, true)) return true;
   if (boolFromCell(item.caption_has_sold, false)) return true;
+  if (Number(item.item_count) === 0) return true;
   const mentioned = splitSizes(item.size_mentions);
   if (mentioned.length === 0) return false;
   const sold = new Set(splitSizes(item.sold_sizes));
@@ -2009,8 +2012,22 @@ function renderCartModal() {
           </div>
         </div>
 
+        <div class="field" style="margin-top:1rem; padding:0.85rem; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,0.6); box-sizing:border-box;">
+          <label style="font-weight:700; margin-bottom:0.6rem; display:block;">Payment Option</label>
+          <div style="display:flex; flex-direction:column; gap:0.6rem;">
+            <label style="display:flex; align-items:center; gap:0.55rem; font-size:0.9rem; cursor:pointer;">
+              <input type="radio" name="paymentOption" value="stripe" checked />
+              <span>Credit / Debit Card (Stripe Checkout)</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:0.55rem; font-size:0.9rem; cursor:pointer;">
+              <input type="radio" name="paymentOption" value="bank" />
+              <span>Direct Bank Deposit</span>
+            </label>
+          </div>
+        </div>
+
         <div class="checkout-actions">
-          <button id="placeOrderBtn">Place order</button>
+          <button id="placeOrderBtn">Pay & Place order</button>
           <button class="secondary" id="backToCartBtn" type="button">Back to cart</button>
         </div>
         <div id="orderMessage">${state.orderSuccessMessage ? `<p class="notice">${escapeHtml(state.orderSuccessMessage)}</p>` : ""}</div>
@@ -2190,6 +2207,8 @@ async function placeOrder(rows, itemsTotal) {
   const country = document.getElementById("nzCountry").value.trim() || "New Zealand";
   const address = [addressLine1, suburb, city, postcode, country].filter(Boolean).join(", ");
   const messageWrap = document.getElementById("orderMessage");
+  const placeOrderBtn = document.getElementById("placeOrderBtn");
+  const backToCartBtn = document.getElementById("backToCartBtn");
   state.orderSuccessMessage = "";
 
   if (!name || !phone || !email || !addressLine1 || !city || !postcode) {
@@ -2199,6 +2218,14 @@ async function placeOrder(rows, itemsTotal) {
   if (rows.length === 0) {
     messageWrap.innerHTML = '<p class="notice error">Your cart is empty.</p>';
     return;
+  }
+
+  if (placeOrderBtn) {
+    placeOrderBtn.disabled = true;
+    placeOrderBtn.innerHTML = '<span class="spinner"></span> Processing order...';
+  }
+  if (backToCartBtn) {
+    backToCartBtn.disabled = true;
   }
 
   const shippingMethod = state.shippingMethod === "express" ? "express" : "normal";
@@ -2247,6 +2274,58 @@ async function placeOrder(rows, itemsTotal) {
   ].join("%0D%0A");
 
   const plainBody = decodeURIComponent(body);
+  const paymentOption = document.querySelector('input[name="paymentOption"]:checked')?.value || "stripe";
+
+  if (paymentOption === "stripe") {
+    try {
+      const res = await fetch(STRIPE_SESSION_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: emailItems,
+          shipping_cost: shippingCost,
+          customer_email: email,
+          order_payload: payload
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok || !data.url) {
+        throw new Error(data.error || "Could not initiate Stripe checkout.");
+      }
+
+      // Record order & send email before redirecting to Stripe
+      await sendOrderEmailSecure({
+        order_id: orderId,
+        created_utc: payload.created_utc,
+        customer_name: name,
+        customer_email: email,
+        customer_phone: phone,
+        address,
+        items_total: itemsTotal,
+        shipping_method: shippingTitle,
+        shipping_cost: shippingCost,
+        total: grandTotal,
+        items: emailItems,
+        body: plainBody
+      });
+
+      clearCart();
+      window.location.href = data.url;
+      return;
+    } catch (err) {
+      if (placeOrderBtn) {
+        placeOrderBtn.disabled = false;
+        placeOrderBtn.textContent = "Pay & Place order";
+      }
+      if (backToCartBtn) {
+        backToCartBtn.disabled = false;
+      }
+      messageWrap.innerHTML = `<p class="notice error">Stripe payment error: ${escapeHtml(err.message)}</p>`;
+      return;
+    }
+  }
+
   try {
     await sendOrderEmailSecure({
       order_id: orderId,
@@ -2263,6 +2342,13 @@ async function placeOrder(rows, itemsTotal) {
       body: plainBody
     });
   } catch {
+    if (placeOrderBtn) {
+      placeOrderBtn.disabled = false;
+      placeOrderBtn.textContent = "Place order";
+    }
+    if (backToCartBtn) {
+      backToCartBtn.disabled = false;
+    }
     messageWrap.innerHTML = '<p class="notice error">Could not send order email from server. Please try again in a moment.</p>';
     return;
   }
@@ -2531,10 +2617,30 @@ async function renderOrdersTab() {
     <article class="panel">
       <h2>Orders Received</h2>
       <p>Customer details and placed order history.</p>
+
+      <div class="chip-row" style="margin-bottom: 1rem;">
+        <button type="button" class="chip ${state.ordersTabFilter === "all" ? "active" : ""}" id="orderFilterAllBtn">All Orders</button>
+        <button type="button" class="chip ${state.ordersTabFilter === "pending" ? "active" : ""}" id="orderFilterPendingBtn">⏳ Pending</button>
+        <button type="button" class="chip ${state.ordersTabFilter === "completed" ? "active" : ""}" id="orderFilterCompletedBtn">✅ Completed</button>
+      </div>
+
       <div id="ordersLoadingMsg"><p class="notice">Loading orders...</p></div>
       <div id="ordersContainer"></div>
     </article>
   `;
+
+  document.getElementById("orderFilterAllBtn")?.addEventListener("click", () => {
+    state.ordersTabFilter = "all";
+    renderOrdersTab();
+  });
+  document.getElementById("orderFilterPendingBtn")?.addEventListener("click", () => {
+    state.ordersTabFilter = "pending";
+    renderOrdersTab();
+  });
+  document.getElementById("orderFilterCompletedBtn")?.addEventListener("click", () => {
+    state.ordersTabFilter = "completed";
+    renderOrdersTab();
+  });
 
   try {
     const res = await fetch(`${CATALOG_API_URL}?type=orders`);
@@ -2551,14 +2657,75 @@ async function renderOrdersTab() {
 
   if (!container) return;
 
-  if (state.ordersList.length === 0) {
-    container.innerHTML = '<p class="notice warning">No orders found yet.</p>';
+  const filteredOrders = state.ordersList.filter((order) => {
+    const status = String(order.status || "pending").toLowerCase();
+    if (state.ordersTabFilter === "pending") return status === "pending";
+    if (state.ordersTabFilter === "completed") return status === "completed";
+    return true;
+  });
+
+  if (filteredOrders.length === 0) {
+    container.innerHTML = `<p class="notice warning">No ${state.ordersTabFilter === "all" ? "" : state.ordersTabFilter} orders found.</p>`;
     return;
   }
 
   container.innerHTML = `
+    <div style="overflow-x:auto; margin-bottom:1.5rem;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.88rem; text-align:left;">
+        <thead>
+          <tr style="background:#f4f0ea; border-bottom:2px solid var(--line);">
+            <th style="padding:0.6rem 0.75rem;">Order ID</th>
+            <th style="padding:0.6rem 0.75rem;">Date</th>
+            <th style="padding:0.6rem 0.75rem;">Customer</th>
+            <th style="padding:0.6rem 0.75rem;">Items</th>
+            <th style="padding:0.6rem 0.75rem;">Total</th>
+            <th style="padding:0.6rem 0.75rem;">Status</th>
+            <th style="padding:0.6rem 0.75rem;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filteredOrders.map((order) => {
+            const isCompleted = String(order.status || "pending").toLowerCase() === "completed";
+            const orderDate = new Date(order.created_at || order.created_utc || Date.now()).toLocaleDateString("en-NZ", {
+              day: "numeric",
+              month: "short",
+              year: "numeric"
+            });
+            const itemsArr = Array.isArray(order.items) ? order.items : [];
+            const itemSummary = itemsArr.map((i) => `${escapeHtml(i.title || "Item")}${i.size ? ` (${escapeHtml(formatSizeLabel(i.size))})` : ""}`).join(", ");
+
+            return `
+              <tr style="border-bottom:1px solid #eee;">
+                <td style="padding:0.6rem 0.75rem; font-weight:700;">#${escapeHtml(order.order_id)}</td>
+                <td style="padding:0.6rem 0.75rem; color:#666;">${escapeHtml(orderDate)}</td>
+                <td style="padding:0.6rem 0.75rem;">
+                  <strong>${escapeHtml(order.customer_name)}</strong><br/>
+                  <small style="color:#777;">${escapeHtml(order.customer_phone)}</small>
+                </td>
+                <td style="padding:0.6rem 0.75rem; max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(itemSummary)}">${escapeHtml(itemSummary)}</td>
+                <td style="padding:0.6rem 0.75rem; font-weight:700;">${formatMoney(order.total)}</td>
+                <td style="padding:0.6rem 0.75rem;">
+                  <span style="display:inline-block; padding:0.2rem 0.55rem; border-radius:999px; font-size:0.78rem; font-weight:700; ${isCompleted ? "background:#e3f2fd; color:#0d47a1;" : "background:#fff3e0; color:#e65100;"}">
+                    ${isCompleted ? "Completed" : "Pending"}
+                  </span>
+                </td>
+                <td style="padding:0.6rem 0.75rem;">
+                  <select class="order-status-select" data-order-id="${escapeHtml(order.order_id)}" style="padding:0.25rem 0.5rem; font-size:0.82rem; border-radius:6px; min-height:auto;">
+                    <option value="pending" ${!isCompleted ? "selected" : ""}>Pending</option>
+                    <option value="completed" ${isCompleted ? "selected" : ""}>Completed</option>
+                  </select>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:1.5rem; margin-bottom:1rem;">Order Details Cards</h3>
     <div style="display:flex; flex-direction:column; gap:1.2rem;">
-      ${state.ordersList.map((order) => {
+      ${filteredOrders.map((order) => {
+        const isCompleted = String(order.status || "pending").toLowerCase() === "completed";
         const orderDate = new Date(order.created_at || order.created_utc || Date.now()).toLocaleString("en-NZ", {
           day: "numeric",
           month: "short",
@@ -2577,8 +2744,14 @@ async function renderOrdersTab() {
                 <strong style="font-size:1.1rem; color:var(--brand);">Order #${escapeHtml(order.order_id)}</strong>
                 <span style="font-size:0.82rem; color:#777; margin-left:0.5rem;">${escapeHtml(orderDate)}</span>
               </div>
-              <div style="font-size:1.1rem; font-weight:700; color:#1c140d;">
-                ${formatMoney(order.total)}
+              <div style="display:flex; align-items:center; gap:0.8rem;">
+                <select class="order-status-select" data-order-id="${escapeHtml(order.order_id)}" style="padding:0.3rem 0.6rem; font-size:0.85rem; border-radius:6px; min-height:auto;">
+                  <option value="pending" ${!isCompleted ? "selected" : ""}>⏳ Pending</option>
+                  <option value="completed" ${isCompleted ? "selected" : ""}>✅ Completed</option>
+                </select>
+                <div style="font-size:1.1rem; font-weight:700; color:#1c140d;">
+                  ${formatMoney(order.total)}
+                </div>
               </div>
             </div>
 
@@ -2615,6 +2788,30 @@ async function renderOrdersTab() {
       }).join("")}
     </div>
   `;
+
+  document.querySelectorAll(".order-status-select").forEach((selectNode) => {
+    selectNode.addEventListener("change", async (e) => {
+      const orderId = e.target.getAttribute("data-order-id");
+      const newStatus = e.target.value;
+      try {
+        const res = await fetch(CATALOG_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "update_order_status",
+            order_id: orderId,
+            status: newStatus
+          })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
+        if (found) found.status = newStatus;
+        renderOrdersTab();
+      } catch (err) {
+        alert(`Failed to update order status: ${err.message}`);
+      }
+    });
+  });
 }
 
 function renderProductsTab(filtered) {
@@ -2891,15 +3088,18 @@ function renderStockEditor(filteredRows) {
       document.getElementById("seTitle").focus();
       return;
     }
+    const itemCount = Number(document.getElementById("seItemCount").value || 0);
+    const captionHasSoldInput = document.getElementById("seCaptionSold").checked;
+
     const patch = {
       title,
       description,
       size_mentions: orderedMentions.join(";"),
       sold_sizes: orderedSold.join(";"),
-      item_count: Number(document.getElementById("seItemCount").value || 0),
+      item_count: itemCount,
       price: Number(document.getElementById("sePrice").value || 0),
       active: document.getElementById("seActive").checked,
-      caption_has_sold: document.getElementById("seCaptionSold").checked,
+      caption_has_sold: itemCount === 0 ? true : captionHasSoldInput,
       primary_image_file: document.getElementById("sePrimary").value.trim(),
       image_files: document.getElementById("seImages").value.split(";").map((part) => part.trim()).filter(Boolean)
     };

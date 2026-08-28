@@ -294,6 +294,26 @@ exports.handler = async (event) => {
       return json(400, { ok: false, error: "Invalid JSON body" });
     }
 
+    if (body.mode === "update_order_status") {
+      const orderId = String(body.order_id || "").trim();
+      const status = String(body.status || "pending").trim();
+
+      if (!orderId) return json(400, { ok: false, error: "order_id is required." });
+
+      try {
+        const { data, error } = await supabase
+          .from("orders")
+          .update({ status })
+          .eq("order_id", orderId)
+          .select();
+
+        if (error) return json(500, { ok: false, error: error.message });
+        return json(200, { ok: true, order: data?.[0] });
+      } catch (err) {
+        return json(500, { ok: false, error: err.message });
+      }
+    }
+
     // Single-product database update. This must run before import validation.
     if (body.mode === "update") {
       const groupId = String(body.group_id || "").trim();

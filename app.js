@@ -250,6 +250,26 @@ function installWideScreenBannerStyles() {
       box-shadow:none;
       cursor:pointer;
     }
+    .footer-social-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.4rem;
+      height: 1.4rem;
+      color: #e5e0d3;
+      transition: color 0.18s ease, transform 0.18s ease;
+    }
+    .footer-social-link:hover {
+      color: #ffffff;
+      transform: translateY(-1px);
+      text-decoration: none;
+    }
+    .social-icon {
+      width: 100%;
+      height: 100%;
+      display: block;
+      fill: currentColor;
+    }
     @media (max-width: 700px) {
       .about-footer {
         gap: 0.35rem;
@@ -1220,17 +1240,20 @@ function renderShop() {
 
         <footer class="about-footer">
           <div class="footer-social-row">
-            <a href="https://www.instagram.com/curatedkadha/" target="_blank" rel="noopener noreferrer">
-              📷 @curatedkadha
+            <a href="https://www.instagram.com/curatedkadha/" class="footer-social-link" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+              <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M7.75 2h8.5A5.75 5.75 0 0 1 22 7.75v8.5A5.75 5.75 0 0 1 16.25 22h-8.5A5.75 5.75 0 0 1 2 16.25v-8.5A5.75 5.75 0 0 1 7.75 2Zm0 1.8A3.95 3.95 0 0 0 3.8 7.75v8.5a3.95 3.95 0 0 0 3.95 3.95h8.5a3.95 3.95 0 0 0 3.95-3.95v-8.5a3.95 3.95 0 0 0-3.95-3.95h-8.5Zm8.95 1.5a1.15 1.15 0 1 1 0 2.3 1.15 1.15 0 0 1 0-2.3ZM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 1.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Z"/>
+              </svg>
             </a>
-            <span class="footer-separator">|</span>
-            <a href="https://www.facebook.com/share/1HZqjVJfEM/?mibextid=wwXIfr" target="_blank" rel="noopener noreferrer">
-              ⓕ Curated Kadha
+            <a href="https://www.facebook.com/share/1HZqjVJfEM/?mibextid=wwXIfr" class="footer-social-link" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
+              <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M13.5 22v-8h2.6l.4-3h-3V9.1c0-.86.25-1.45 1.49-1.45H16.6V5.02c-.28-.04-1.23-.12-2.34-.12-2.32 0-3.9 1.41-3.9 4v2.24H7.8v3h2.56v8h3.14Z"/>
+              </svg>
             </a>
-          </div>
-          <div class="footer-email-row">
-            <a id="footerEmailLink" href="#">
-              ✉️ <span id="footerEmailText"></span>
+            <a id="footerEmailLink" href="#" class="footer-social-link" aria-label="Email">
+              <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M3 6.75A2.75 2.75 0 0 1 5.75 4h12.5A2.75 2.75 0 0 1 21 6.75v10.5A2.75 2.75 0 0 1 18.25 20H5.75A2.75 2.75 0 0 1 3 17.25V6.75Zm2.26-.95 6.2 5.17a.85.85 0 0 0 1.08 0l6.2-5.17H5.26Zm13.94 2.18-5.54 4.61a2.55 2.55 0 0 1-3.26 0L4.8 7.98v9.27c0 .52.43.95.95.95h12.5c.52 0 .95-.43.95-.95V7.98Z"/>
+              </svg>
             </a>
           </div>
           <div class="footer-copyright">
@@ -1378,14 +1401,14 @@ function bindShopFilterHandlers() {
     });
   }
 
-  const footerEmailText = document.getElementById("footerEmailText");
   const footerEmailLink = document.getElementById("footerEmailLink");
-  if (footerEmailText && footerEmailLink) {
+  if (footerEmailLink) {
     const user = "curatedkadha";
     const domain = "gmail.com";
     const fullEmail = `${user}@${domain}`;
-    footerEmailText.textContent = fullEmail;
     footerEmailLink.href = `mailto:${fullEmail}`;
+    footerEmailLink.setAttribute("aria-label", fullEmail);
+    footerEmailLink.title = fullEmail;
   }
 
   const shopNavCart = document.getElementById("shopNavCartBtn");

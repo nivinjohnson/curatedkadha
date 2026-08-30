@@ -109,7 +109,7 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 180px;
-  background: rgba(30, 26, 22, 0.72);
+  background: rgba(30, 26, 22, 0.62);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.22);
@@ -195,8 +195,10 @@ body {
   display: block;
   padding: 0.65rem 1.25rem;
   color: #f5f2eb;
-  font-size: 0.92rem;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1rem;
   font-weight: 600;
+  letter-spacing: 0.2px;
   text-decoration: none;
   transition: background 0.15s ease, color 0.15s ease;
 }

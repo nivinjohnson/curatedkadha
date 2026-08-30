@@ -8,6 +8,7 @@ const SECURE_ORDER_API_URL = (window.CK_CONFIG && window.CK_CONFIG.secureOrderAp
   ? String(window.CK_CONFIG.secureOrderApiUrl).trim()
   : `${location.origin}/api/send-order-email`;
 const STRIPE_SESSION_API_URL = `${location.origin}/api/create-stripe-session`;
+const FREE_SHIPPING_THRESHOLD = 120;
 const CATALOG_CACHE_KEY = "ck_catalog_cache_v1";
 const CART_KEY = "ck_cart";
 const EDITS_KEY = "ck_stock_edits";
@@ -1160,7 +1161,7 @@ function renderShop() {
       <section class="panel shop-grid-panel">
         <div class="shop-grid-header">
           <p>${filtered.length} products found</p>
-          <button class="secondary" id="shopNavCartBtn" type="button">Cart <span class="cart-pill-count" data-cart-count>0</span></button>
+          <button class="secondary" id="shopNavCartBtn" type="button" aria-label="Open cart" title="Open cart"><span aria-hidden="true">🛒</span> <span class="cart-pill-count" data-cart-count>0</span></button>
         </div>
         <div id="shopGrid" class="grid"></div>
         <div id="shopLoadMoreWrap" class="field"></div>
@@ -2183,6 +2184,29 @@ function renderCart() {
   openCartModal();
 }
 
+function getShippingCost(method, itemsTotal) {
+  const normalizedMethod = method === "express" ? "express" : (method === "pickup" ? "pickup" : "normal");
+  const subtotal = Number(itemsTotal || 0);
+  const eligibleForFreeShipping = subtotal >= FREE_SHIPPING_THRESHOLD;
+  if (normalizedMethod === "pickup") return 0;
+  if (eligibleForFreeShipping) return 0;
+  return normalizedMethod === "express" ? 9 : 7;
+}
+
+function getShippingLabel(method, itemsTotal) {
+  const eligibleForFreeShipping = Number(itemsTotal || 0) >= FREE_SHIPPING_THRESHOLD;
+  if (method === "express") return eligibleForFreeShipping ? "Express (Free)" : "Express";
+  if (method === "pickup") return "Pickup";
+  return eligibleForFreeShipping ? "Standard (Free)" : "Standard";
+}
+
+function getShippingTitle(method, itemsTotal) {
+  const eligibleForFreeShipping = Number(itemsTotal || 0) >= FREE_SHIPPING_THRESHOLD;
+  if (method === "express") return eligibleForFreeShipping ? "Express Shipping (Free over $120)" : "Express Shipping";
+  if (method === "pickup") return "Local Pickup";
+  return eligibleForFreeShipping ? "Standard Shipping (Free over $120)" : "Standard Shipping";
+}
+
 function renderCartModal() {
   const modalRoot = document.getElementById("cartModalRoot");
   if (!modalRoot) {
@@ -2191,9 +2215,14 @@ function renderCartModal() {
 
   const rows = getCartRows();
   const itemsTotal = rows.reduce((sum, row) => sum + row.line_total, 0);
-  const shippingCost = state.shippingMethod === "express" ? 9 : (state.shippingMethod === "pickup" ? 0 : 7);
+  const freeShippingRemaining = Math.max(0, FREE_SHIPPING_THRESHOLD - itemsTotal);
+  const eligibleForFreeShipping = freeShippingRemaining <= 0;
+  const freeShippingPromoText = eligibleForFreeShipping
+    ? "You unlocked free shipping!"
+    : `Add ${formatMoney(freeShippingRemaining)} more to your order to qualify for free shipping. Free shipping is available on orders over $120.`;
+  const shippingCost = getShippingCost(state.shippingMethod, itemsTotal);
   const grandTotal = itemsTotal + shippingCost;
-  const shippingLabelText = state.shippingMethod === "express" ? "Express" : (state.shippingMethod === "pickup" ? "Pickup" : "Standard");
+  const shippingLabelText = getShippingLabel(state.shippingMethod, itemsTotal);
 
   modalRoot.innerHTML = `
     <div class="cart-modal-backdrop" id="cartModalBackdrop"></div>
@@ -2236,14 +2265,14 @@ function renderCartModal() {
                 <input type="radio" name="shippingOption" value="normal" ${state.shippingMethod === "normal" ? "checked" : ""} />
                 <span class="shipping-option-title">Standard Shipping</span>
               </span>
-              <strong class="shipping-option-price">$7.00</strong>
+              <strong class="shipping-option-price">${eligibleForFreeShipping ? "Free" : "$7.00"}</strong>
             </label>
             <label class="shipping-option-card">
               <span class="shipping-option-left">
                 <input type="radio" name="shippingOption" value="express" ${state.shippingMethod === "express" ? "checked" : ""} />
                 <span class="shipping-option-title">Express Shipping</span>
               </span>
-              <strong class="shipping-option-price">$9.00</strong>
+              <strong class="shipping-option-price">${eligibleForFreeShipping ? "Free" : "$9.00"}</strong>
             </label>
             <label class="shipping-option-card">
               <span class="shipping-option-left">
@@ -2252,6 +2281,9 @@ function renderCartModal() {
               </span>
               <strong class="shipping-option-price">Free</strong>
             </label>
+          </div>
+          <div id="freeShippingPromoNotice" style="display:${state.shippingMethod === "pickup" ? "none" : "block"}; margin-top:0.6rem; padding:0.6rem 0.75rem; border-radius:7px; background:#4a2f1d; border:1px solid #c99a73; font-size:0.84rem; color:#fff4e8; font-weight:700; letter-spacing:0.01em;">
+            ${escapeHtml(freeShippingPromoText)}
           </div>
           <div id="pickupInfoNotice" style="display:${state.shippingMethod === "pickup" ? "block" : "none"}; margin-top:0.65rem; padding:0.6rem 0.75rem; border-radius:6px; background:#f0f4ee; border:1px solid #cbd6c3; font-size:0.85rem; color:#284521; font-weight:500;">
             DM <strong>@curatedkadha</strong> on Instagram for pickup details.
@@ -2426,17 +2458,19 @@ function renderCartModal() {
       state.shippingMethod = e.target.value;
       const isExpress = state.shippingMethod === "express";
       const isPickup = state.shippingMethod === "pickup";
-      const cost = isExpress ? 9 : (isPickup ? 0 : 7);
+      const cost = getShippingCost(state.shippingMethod, itemsTotal);
       const newGrandTotal = itemsTotal + cost;
       
       const label = document.getElementById("shippingSummaryLabel");
       const costSpan = document.getElementById("shippingSummaryCost");
       const grandTotalSpan = document.getElementById("grandTotalSummaryCost");
+      const freeShippingPromoNotice = document.getElementById("freeShippingPromoNotice");
       const pickupNotice = document.getElementById("pickupInfoNotice");
 
-      if (label) label.textContent = isExpress ? "Express" : (isPickup ? "Pickup" : "Standard");
+      if (label) label.textContent = getShippingLabel(state.shippingMethod, itemsTotal);
       if (costSpan) costSpan.textContent = formatMoney(cost);
       if (grandTotalSpan) grandTotalSpan.textContent = formatMoney(newGrandTotal);
+      if (freeShippingPromoNotice) freeShippingPromoNotice.style.display = isPickup ? "none" : "block";
       if (pickupNotice) pickupNotice.style.display = isPickup ? "block" : "none";
     });
   });
@@ -2486,8 +2520,8 @@ async function placeOrder(rows, itemsTotal) {
   }
 
   const shippingMethod = state.shippingMethod === "express" ? "express" : (state.shippingMethod === "pickup" ? "pickup" : "normal");
-  const shippingCost = shippingMethod === "express" ? 9 : (shippingMethod === "pickup" ? 0 : 7);
-  const shippingTitle = shippingMethod === "express" ? "Express Shipping" : (shippingMethod === "pickup" ? "Local Pickup" : "Normal Shipping");
+  const shippingCost = getShippingCost(shippingMethod, itemsTotal);
+  const shippingTitle = getShippingTitle(shippingMethod, itemsTotal);
   const grandTotal = itemsTotal + shippingCost;
 
   const orderId = String(Math.floor(10000 + Math.random() * 90000));

@@ -156,6 +156,118 @@ function installWideScreenBannerStyles() {
       display: flex;
       flex-direction: column;
     }
+    .home-blank-space {
+      width: 100%;
+      min-height: 77vh;
+      min-height: 77svh;
+      flex: 0 0 auto;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: clamp(1.2rem, 3.5vw, 2rem);
+      pointer-events: auto;
+      margin-top: -0.8rem;
+    }
+    @media (max-width: 620px) {
+      .home-blank-space {
+        margin-top: -0.6rem;
+      }
+    }
+    @media (max-width: 380px) {
+      .home-blank-space {
+        margin-top: -0.45rem;
+      }
+    }
+    @media (min-width: 621px) {
+      .home-blank-space {
+        margin-top: -0.95rem;
+      }
+    }
+    .home-blank-overlay {
+      width: min(94vw, 860px);
+      padding: clamp(1.6rem, 3.1vw, 2.6rem);
+      border: 1px solid rgba(212, 178, 72, 0.62);
+      background: linear-gradient(180deg, rgba(20, 16, 10, 0.26) 0%, rgba(20, 16, 10, 0.52) 100%);
+      backdrop-filter: blur(1px);
+      text-align: center;
+      color: #f4eee3;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      align-items: center;
+    }
+    .home-blank-title {
+      margin: 0;
+      font-family: "Fraunces", Georgia, serif;
+      font-size: clamp(2rem, 8.3vw, 4.25rem);
+      font-weight: 600;
+      line-height: 1.05;
+      letter-spacing: 0.3px;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+    }
+    .home-blank-caption {
+      margin: 0.45rem 0 1.05rem;
+      font-size: clamp(1rem, 3.7vw, 1.9rem);
+      line-height: 1.35;
+      color: #f0e9db;
+      text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+    }
+    .home-blank-subtitle {
+      margin: 0.3rem 0;
+      color: #f4f1ea;
+      font-size: clamp(0.56rem, 2.1vw, 0.76rem);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    }
+    .home-blank-subtitle:last-of-type {
+      margin-bottom: 1rem;
+    }
+    .home-blank-cta {
+      border: 0;
+      background: rgba(212, 178, 72, 0.1);
+      color: #d4b248;
+      font-size: clamp(0.88rem, 3.2vw, 1rem);
+      letter-spacing: 2.2px;
+      text-transform: uppercase;
+      padding: 0.72rem 1.45rem;
+      border-radius: 4px;
+      min-height: 0;
+      box-shadow: none;
+      transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+      cursor: pointer;
+    }
+    .home-blank-cta:hover {
+      background: rgba(212, 178, 72, 0.18);
+      color: #f4d77d;
+      transform: translateY(-1px);
+    }
+    body.home-no-topbar .topbar {
+      border-bottom: 0;
+      background: transparent;
+    }
+    body.home-no-topbar .banner-img-wrap {
+      height: 0;
+      overflow: visible;
+    }
+    body.home-no-topbar .banner-img,
+    body.home-no-topbar .brand-wrap {
+      display: none;
+    }
+    body.home-no-topbar .app-shell {
+      padding-top: 0;
+    }
+    body.home-no-topbar .shop-layout {
+      min-height: 100vh;
+      min-height: 100svh;
+    }
+    body.home-no-topbar .home-blank-space {
+      min-height: 100vh;
+      min-height: 100svh;
+      margin-top: 0;
+    }
     .about-wrap {
       margin-top: auto;
     }
@@ -359,30 +471,43 @@ function renderError(message) {
 
 function ensureRoute() {
   if (!location.hash || location.hash === "#") {
-    location.hash = "#/shop";
+    location.hash = "#/home";
   }
 }
 
 function getRoute() {
   const raw = location.hash.replace(/^#\/?/, "");
   const [pathPart] = raw.split("?");
-  const lowerRaw = (raw || "shop").toLowerCase();
-  const path = (pathPart || "shop").toLowerCase();
+  const lowerRaw = (raw || "home").toLowerCase();
+  const path = (pathPart || "home").toLowerCase();
   return { path, raw, lowerRaw };
 }
 
 function renderRoute() {
   ensureSessionValidity();
   const { path, raw, lowerRaw } = getRoute();
+  document.body.classList.toggle("home-no-topbar", path === "home");
   setActiveNav(path);
 
-  if (path === "shop") {
+  if (path === "home") {
+    renderHome();
+    return;
+  }
+  if (path === "products" || path === "shop") {
     renderShop();
+    return;
+  }
+  if (path === "about") {
+    renderAbout();
+    return;
+  }
+  if (path === "size-chart" || path === "sizechart") {
+    renderSizeChart();
     return;
   }
   if (path === "cart") {
     state.isCartModalOpen = true;
-    location.hash = "#/shop";
+    location.hash = "#/products";
     return;
   }
   if (lowerRaw.startsWith("product/")) {
@@ -396,7 +521,7 @@ function renderRoute() {
     return;
   }
 
-  location.hash = "#/shop";
+  location.hash = "#/home";
 }
 
 function setActiveNav(path) {
@@ -407,8 +532,8 @@ function setActiveNav(path) {
 }
 
 function goHomeTop() {
-  if (location.hash !== "#/shop") {
-    location.hash = "#/shop";
+  if (location.hash !== "#/home") {
+    location.hash = "#/home";
     setTimeout(() => {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }, 60);
@@ -1132,18 +1257,40 @@ function setCartQty(cartKey, qty) {
   updateCartCount();
 }
 
+function renderHome() {
+  app.innerHTML = `
+    <section class="shop-layout">
+      <section class="home-blank-space">
+        <div class="home-blank-overlay">
+          <h1 class="home-blank-title">Curated Kadha</h1>
+          <p class="home-blank-subtitle">Every piece tells a thoughtfully crafted story!</p>
+          <p class="home-blank-subtitle">From NZ with love and yes, we ship your faves ✨</p>
+          <button id="homeScrollProductsBtn" class="home-blank-cta" type="button">Discover The Collection</button>
+        </div>
+      </section>
+      <div id="cartModalRoot"></div>
+      <div id="imageViewerRoot"></div>
+    </section>
+  `;
+
+  initHamburgerMenu();
+  updateCartCount();
+  bindShopFilterHandlers();
+  collapseHomeExpanders();
+  runPendingHomeSectionNavigation();
+  if (state.isCartModalOpen) {
+    openCartModal();
+  }
+}
+
 function renderShop() {
   const filtered = filterProducts();
   state.filteredProducts = filtered;
   const selectedSize = state.filters.sizeFilter[0] || "all";
-  const aboutPhoto = ABOUT_PHOTO_SRC.trim();
-  const aboutPhotoMarkup = aboutPhoto
-    ? `<img class="about-photo" src="${escapeHtml(aboutPhoto)}" alt="Holland Designs Crochet" />`
-    : `<div class="about-photo-placeholder">Add about photo</div>`;
 
   app.innerHTML = `
     <section class="shop-layout">
-      <div class="shop-toolbar">
+      <div class="shop-toolbar" id="homeFiltersSection">
         <details class="shop-filters-parent">
           <summary class="shop-filters-summary">
             <span class="filters-title">Filters</span>
@@ -1178,7 +1325,7 @@ function renderShop() {
         </details>
       </div>
 
-      <section class="panel shop-grid-panel">
+      <section class="panel shop-grid-panel" id="homeProductsSection">
         <div class="shop-grid-header">
           <p>${filtered.length} products found</p>
           <button class="secondary" id="shopNavCartBtn" type="button" aria-label="Open cart" title="Open cart"><span aria-hidden="true">🛒</span> <span class="cart-pill-count" data-cart-count>0</span></button>
@@ -1187,6 +1334,29 @@ function renderShop() {
         <div id="shopLoadMoreWrap" class="field"></div>
       </section>
 
+      <div id="cartModalRoot"></div>
+      <div id="imageViewerRoot"></div>
+      <button id="backToTopBtn" class="back-to-top-pill" type="button" aria-label="Back to top">↑</button>
+    </section>
+  `;
+
+  initHamburgerMenu();
+  updateCartCount();
+  bindShopFilterHandlers();
+  renderShopGrid();
+  if (state.isCartModalOpen) {
+    openCartModal();
+  }
+}
+
+function renderAbout() {
+  const aboutPhoto = ABOUT_PHOTO_SRC.trim();
+  const aboutPhotoMarkup = aboutPhoto
+    ? `<img class="about-photo" src="${escapeHtml(aboutPhoto)}" alt="Chelsii" />`
+    : `<div class="about-photo-placeholder">Add about photo</div>`;
+
+  app.innerHTML = `
+    <section class="shop-layout">
       <section class="about-wrap" id="aboutSection">
         <article class="about-content">
           <div class="about-media">
@@ -1196,19 +1366,19 @@ function renderShop() {
             <p>Hey there!</p>
             <p>I'm <a href="#/stock" id="chelsiiLoginBtn" style="color:inherit; text-decoration:none; cursor:pointer;">Chelsii</a></p>
             <p>
-            Curated Kadha began as a spark of passion, a dream born from my love for meaningful design and the joy of discovering pieces that just feel right.
+              Curated Kadha began as a spark of passion, a dream born from my love for meaningful design and the joy of discovering pieces that just feel right.
             </p>
             <p>
-            When I first thought about starting a business, I listed everything that truly inspired me, and fashion, with its blend of art, culture, and emotion, stood out.
+              When I first thought about starting a business, I listed everything that truly inspired me, and fashion, with its blend of art, culture, and emotion, stood out.
             </p>
             <p>
-            At Curated Kadha, every piece tells a story of culture, craftsmanship, and conscious style. Rooted in a love for timeless design and thoughtful details, each piece is chosen to celebrate individuality and comfort, made for slow mornings, festive evenings, and everything in between.
+              At Curated Kadha, every piece tells a story of culture, craftsmanship, and conscious style. Rooted in a love for timeless design and thoughtful details, each piece is chosen to celebrate individuality and comfort, made for slow mornings, festive evenings, and everything in between.
             </p>
             <p>
-            Based in New Zealand, we work closely with artisans and small creatives to bring you unique, sustainable pieces. Most of our collections are carefully curated by us, while some are thoughtfully sourced from other creators, all chosen to share something truly special.
+              Based in New Zealand, we work closely with artisans and small creatives to bring you unique, sustainable pieces. Most of our collections are carefully curated by us, while some are thoughtfully sourced from other creators, all chosen to share something truly special.
             </p>
             <p>
-            Curated pieces, thoughtfully chosen ✨
+              Curated pieces, thoughtfully chosen ✨
             </p>
           </div>
         </article>
@@ -1229,10 +1399,10 @@ function renderShop() {
           <div class="detail-size-chart-body" style="text-align:left; font-size:0.88rem; line-height:1.6; color:#4a423a;">
             <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Change of Mind</strong>
             <p style="margin:0 0 0.75rem;">We do not offer refunds, exchanges, or store credits for change-of-mind purchases. Please choose carefully before placing your order.</p>
-            
+
             <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Faulty, Damaged, or Incorrect Items</strong>
             <p style="margin:0 0 0.75rem;">If an item arrives damaged, faulty, or is not as described, you may be entitled to a repair, replacement, or refund under the Consumer Guarantees Act 1993. Please contact us within a reasonable time of discovering the issue and provide your order number and photos of the item.</p>
-            
+
             <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Consumer Guarantees Act</strong>
             <p style="margin:0;">Nothing in this policy limits or excludes your rights under the Consumer Guarantees Act 1993 or any other applicable New Zealand consumer laws.</p>
           </div>
@@ -1270,12 +1440,32 @@ function renderShop() {
   initHamburgerMenu();
   updateCartCount();
   bindShopFilterHandlers();
-  renderShopGrid();
-  collapseHomeExpanders();
-  runPendingHomeSectionNavigation();
   if (state.isCartModalOpen) {
     openCartModal();
   }
+}
+
+function renderSizeChart() {
+  renderAbout();
+
+  const sizeDetails = document.getElementById("homeSizeChart");
+  if (!sizeDetails) {
+    return;
+  }
+
+  if (sizeDetails.tagName === "DETAILS") {
+    sizeDetails.open = true;
+  }
+
+  const target = sizeDetails.querySelector(".detail-size-chart-summary") || sizeDetails;
+  requestAnimationFrame(() => {
+    const top = window.scrollY + sizeDetails.getBoundingClientRect().top - 14;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    if (target && typeof target.focus === "function") {
+      target.setAttribute("tabindex", "-1");
+      target.focus({ preventScroll: true });
+    }
+  });
 }
 
 function collapseHomeExpanders() {
@@ -1297,15 +1487,8 @@ function requestHomeSectionNavigation(sectionId) {
     return;
   }
 
-  if (location.hash !== "#/shop") {
-    location.hash = "#/shop";
-    return;
-  }
-
-  const fullCount = filterProducts().length;
-  if (state.visibleCount < fullCount) {
-    state.visibleCount = fullCount;
-    renderShop();
+  if (location.hash !== "#/home") {
+    location.hash = "#/home";
     return;
   }
 
@@ -1418,6 +1601,13 @@ function bindShopFilterHandlers() {
     });
   }
 
+  const homeScrollProductsBtn = document.getElementById("homeScrollProductsBtn");
+  if (homeScrollProductsBtn) {
+    homeScrollProductsBtn.addEventListener("click", () => {
+      location.hash = "#/products";
+    });
+  }
+
   const backToTopButton = document.getElementById("backToTopBtn");
   if (backToTopButton) {
     backToTopButton.addEventListener("click", () => {
@@ -1438,10 +1628,10 @@ function bindShopFilterHandlers() {
 function initHamburgerMenu() {
   const hamburgerBtn = document.getElementById("hamburgerBtn");
   const navDropdownMenu = document.getElementById("navDropdownMenu");
-  const navAboutBtn = document.getElementById("navAboutBtn");
   const navShopBtn = document.getElementById("navShopBtn");
+  const navProductsBtn = document.getElementById("navProductsBtn");
   const navSizeChartBtn = document.getElementById("navSizeChartBtn");
-  const navPolicyBtn = document.getElementById("navPolicyBtn");
+  const navAboutBtn = document.getElementById("navAboutBtn");
 
   if (!hamburgerBtn || !navDropdownMenu) return;
 
@@ -1467,37 +1657,35 @@ function initHamburgerMenu() {
     document.body.dataset.ckHamburgerBound = "1";
   }
 
-  const scrollToAndOpen = (elementId) => {
-    toggleMenu(false);
-    requestHomeSectionNavigation(elementId);
-  };
-
-  if (navAboutBtn) {
-    navAboutBtn.onclick = (e) => {
+  if (navShopBtn) {
+    navShopBtn.onclick = (e) => {
       e.preventDefault();
-      scrollToAndOpen("aboutSection");
+      toggleMenu(false);
+      goHomeTop();
+    };
+  }
+
+  if (navProductsBtn) {
+    navProductsBtn.onclick = (e) => {
+      e.preventDefault();
+      toggleMenu(false);
+      location.hash = "#/products";
     };
   }
 
   if (navSizeChartBtn) {
     navSizeChartBtn.onclick = (e) => {
       e.preventDefault();
-      scrollToAndOpen("homeSizeChart");
+      toggleMenu(false);
+      location.hash = "#/size-chart";
     };
   }
 
-  if (navPolicyBtn) {
-    navPolicyBtn.onclick = (e) => {
-      e.preventDefault();
-      scrollToAndOpen("homePolicy");
-    };
-  }
-
-  if (navShopBtn) {
-    navShopBtn.onclick = (e) => {
+  if (navAboutBtn) {
+    navAboutBtn.onclick = (e) => {
       e.preventDefault();
       toggleMenu(false);
-      goHomeTop();
+      location.hash = "#/about";
     };
   }
 }
@@ -1687,10 +1875,10 @@ function renderProductDetails(productId) {
       <section class="panel" style="max-width:760px; margin:1rem auto; text-align:center;">
         <h1>Product not found</h1>
         <p>The requested product is unavailable.</p>
-        <button id="productNotFoundBackBtn" type="button">Back to shop</button>
+        <button id="productNotFoundBackBtn" type="button">Back to products</button>
       </section>`;
     document.getElementById("productNotFoundBackBtn")?.addEventListener("click", () => {
-      location.hash = "#/shop";
+      location.hash = "#/products";
     });
     return;
   }
@@ -1924,7 +2112,7 @@ function renderProductDetails(productId) {
     </section>`;
 
   document.getElementById("detailClosePillBtn")?.addEventListener("click", () => {
-    location.hash = "#/shop";
+    location.hash = "#/products";
   });
 
   const detailCopyLinkPillBtn = document.getElementById("detailCopyLinkPillBtn");
@@ -2075,8 +2263,8 @@ function closeCartModal() {
     modalRoot.innerHTML = "";
   }
   syncOverlayBodyLock();
-  if (location.hash !== "#/shop") {
-    location.hash = "#/shop";
+  if (location.hash !== "#/home" && location.hash !== "#/products" && location.hash !== "#/shop") {
+    location.hash = "#/home";
   }
 }
 
@@ -2721,7 +2909,7 @@ function renderStock() {
     <section class="stock-layout">
       <article class="panel">
         <div class="stock-action-row">
-          <button class="secondary" id="stockBackBtn">Back to shop</button>
+          <button class="secondary" id="stockBackBtn">Back to products</button>
           <button class="secondary" id="stockSyncExcelBtn" title="Fetch raw data directly from product_info/product_catalog.xlsx and update DB table">Fetch Excel & Update DB</button>
           <label class="button secondary stock-upload-label" style="display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin:0;" title="Select an Excel file from your computer to update DB table">
             Upload Excel to DB
@@ -2751,7 +2939,7 @@ function renderStock() {
   `;
 
   document.getElementById("stockBackBtn").addEventListener("click", () => {
-    location.hash = "#/shop";
+    location.hash = "#/products";
   });
 
   const tabProductsBtn = document.getElementById("tabProductsBtn");

@@ -960,6 +960,39 @@ async function syncExcelDataToDatabase(options = {}) {
   };
 }
 
+async function syncInstagramDataToDatabase(options = {}) {
+  const insertOnly = options.insertOnly !== false;
+  const method = insertOnly ? "POST" : "PUT";
+  const payload = insertOnly
+    ? { source: "instagram", mode: "insert_only" }
+    : { source: "instagram" };
+
+  const response = await fetch(CATALOG_API_URL, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  let result = null;
+  try {
+    result = await response.json();
+  } catch {
+    result = null;
+  }
+
+  if (!response.ok || !result || result.ok === false) {
+    const err = (result && result.error) ? result.error : `HTTP ${response.status}`;
+    throw new Error(err);
+  }
+
+  return {
+    insertedCount: Number(result.insertedCount ?? result.count ?? 0),
+    skippedCount: Number(result.skippedCount ?? 0),
+    mode: insertOnly ? "insert_only" : "upsert",
+    note: String(result.message || result.note || "")
+  };
+}
+
 async function saveCatalogToServer(products) {
   const response = await fetch(CATALOG_API_URL, {
     method: "PUT",
@@ -2910,11 +2943,7 @@ function renderStock() {
       <article class="panel">
         <div class="stock-action-row">
           <button class="secondary" id="stockBackBtn">Back to products</button>
-          <button class="secondary" id="stockSyncExcelBtn" title="Fetch raw data directly from product_info/product_catalog.xlsx and update DB table">Fetch Excel & Update DB</button>
-          <label class="button secondary stock-upload-label" style="display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin:0;" title="Select an Excel file from your computer to update DB table">
-            Upload Excel to DB
-            <input type="file" id="stockExcelFileInput" accept=".xlsx,.xls" style="display:none;" />
-          </label>
+          <button class="secondary" id="stockSyncExcelBtn" title="Read data_from_insta and update DB">Update DB</button>
           <button class="secondary" id="stockLogoutBtn">Logout</button>
         </div>
         <h1>Stock Info Studio</h1>
@@ -3022,62 +3051,21 @@ function renderProductsTab(filtered) {
       const messageNode = document.getElementById("stockSyncMessage");
       stockSyncExcelBtn.disabled = true;
       if (messageNode) {
-        messageNode.innerHTML = '<p class="notice">Fetching raw data from Excel file and updating database table...</p>';
+        messageNode.innerHTML = '<p class="notice">Reading data_from_insta and updating DB...</p>';
       }
 
       try {
-        const result = await syncExcelDataToDatabase({ url: CATALOG_URL });
+        const result = await syncInstagramDataToDatabase({ insertOnly: false });
         if (messageNode) {
-          const syncInfo = result.syncedToSupabase
-            ? " (Synced to Supabase DB table)"
-            : " (Saved to local catalog)";
-          if (result.insertedCount > 0) {
-            messageNode.innerHTML = `<p class="notice">✓ Added ${result.insertedCount} new products. Preserved ${result.skippedCount} existing products in database without changes.${syncInfo}</p>`;
-          } else {
-            messageNode.innerHTML = `<p class="notice">✓ All ${result.skippedCount} products already exist in database. Existing records, prices & details were kept unchanged.${syncInfo}</p>`;
-          }
+          messageNode.innerHTML = `<p class="notice">✓ Updated DB from Instagram source. ${escapeHtml(result.note || `${result.insertedCount} records processed.`)}</p>`;
         }
         renderRoute();
       } catch (error) {
         if (messageNode) {
-          messageNode.innerHTML = `<p class="notice error">Sync failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+          messageNode.innerHTML = `<p class="notice error">Instagram update failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
         }
       } finally {
         stockSyncExcelBtn.disabled = false;
-      }
-    });
-  }
-
-  const stockExcelFileInput = document.getElementById("stockExcelFileInput");
-  if (stockExcelFileInput) {
-    stockExcelFileInput.addEventListener("change", async (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
-
-      const messageNode = document.getElementById("stockSyncMessage");
-      if (messageNode) {
-        messageNode.innerHTML = `<p class="notice">Reading raw data from ${escapeHtml(file.name)} and checking for new products...</p>`;
-      }
-
-      try {
-        const result = await syncExcelDataToDatabase({ file });
-        if (messageNode) {
-          const syncInfo = result.syncedToSupabase
-            ? " (Synced to Supabase DB table)"
-            : " (Saved to local catalog)";
-          if (result.insertedCount > 0) {
-            messageNode.innerHTML = `<p class="notice">✓ Added ${result.insertedCount} new products from ${escapeHtml(file.name)}. Preserved ${result.skippedCount} existing products without overwriting.${syncInfo}</p>`;
-          } else {
-            messageNode.innerHTML = `<p class="notice">✓ All ${result.skippedCount} products from ${escapeHtml(file.name)} already exist in database. Existing records & prices were kept unchanged.${syncInfo}</p>`;
-          }
-        }
-        renderRoute();
-      } catch (error) {
-        if (messageNode) {
-          messageNode.innerHTML = `<p class="notice error">Excel import failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
-        }
-      } finally {
-        stockExcelFileInput.value = "";
       }
     });
   }

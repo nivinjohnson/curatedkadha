@@ -149,6 +149,61 @@ function buildOrderEmailHtml(payload, toEmail) {
   ].join("");
 }
 
+function buildShippedEmailHtml(payload, toEmail) {
+  const orderId = escapeHtml(payload.order_id || "");
+  const customerName = escapeHtml(payload.customer_name || "");
+  const customerAddress = escapeHtml(payload.address || "");
+  const shippingMethod = escapeHtml(payload.shipping_method || "Standard Shipping");
+  const createdUtc = new Date(payload.created_utc || payload.created_at || Date.now()).toLocaleString("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+  });
+
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const itemRows = items.map((row) => {
+    const title = escapeHtml(row.title || "Item");
+    const size = escapeHtml(row.size || "");
+    const qty = Number(row.qty || 0);
+    return `<li style="margin:0 0 6px;">${title}${size ? ` (Size: ${size})` : ""} x ${qty}</li>`;
+  }).join("");
+
+  return [
+    "<!doctype html>",
+    "<html>",
+    '<body style="margin:0;padding:0;background:#f7f2ea;font-family:Segoe UI,Arial,sans-serif;color:#2a2017;">',
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 12px;">',
+    "<tr><td align=\"center\">",
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;background:#ffffff;border:1px solid #eadccc;border-radius:16px;overflow:hidden;">',
+    '<tr><td style="padding:20px 24px;background:linear-gradient(120deg,#dcead7,#eef7ea);border-bottom:1px solid #d6e6cf;">',
+    '<div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#406437;font-weight:700;">Curated Kadha</div>',
+    '<h1 style="margin:8px 0 0;font-size:24px;line-height:1.2;color:#1f3b18;">Your order has been shipped</h1>',
+    '</td></tr>',
+    '<tr><td style="padding:20px 24px;">',
+    `<p style="margin:0 0 12px;font-size:14px;color:#4e3a2a;">Hi ${customerName || "there"}, your order is now on the way.</p>`,
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #efe3d5;border-radius:12px;background:#fffaf4;">',
+    `<tr><td style="padding:12px 16px;font-size:14px;color:#5f4836;"><strong>Order ID:</strong> ${orderId}</td></tr>`,
+    `<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Email:</strong> ${escapeHtml(toEmail)}</td></tr>`,
+    `<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Delivery Address:</strong> ${customerAddress}</td></tr>`,
+    `<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Shipping Method:</strong> ${shippingMethod}</td></tr>`,
+    `<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Placed At:</strong> ${escapeHtml(createdUtc)}</td></tr>`,
+    "</table>",
+    '<h2 style="margin:18px 0 10px;font-size:17px;color:#24190f;">Items in this shipment</h2>',
+    `<ul style="margin:0;padding-left:20px;font-size:14px;color:#4e3a2a;">${itemRows || "<li>No items listed.</li>"}</ul>`,
+    '<p style="margin:16px 0 0;font-size:14px;color:#5f4836;">Thank you for shopping with Curated Kadha.</p>',
+    "</td></tr>",
+    "</table>",
+    "</td></tr>",
+    "</table>",
+    "</body>",
+    "</html>"
+  ].join("");
+}
+
 function json(statusCode, body) {
   return {
     statusCode,
@@ -189,6 +244,9 @@ exports.handler = async (event) => {
     return json(400, { ok: false, error: `Missing fields: ${missing.join(", ")}` });
   }
 
+  const emailType = String(payload.email_type || "order_confirmed").trim().toLowerCase();
+  const isShippedEmail = emailType === "shipped";
+
   const smtpHost = process.env.ORDER_SMTP_HOST;
   const smtpPort = Number(process.env.ORDER_SMTP_PORT || 465);
   const smtpUser = process.env.ORDER_SMTP_USER;
@@ -209,19 +267,32 @@ exports.handler = async (event) => {
     ? payload.items.map((row) => `- ${row.title || "Item"} | qty ${Number(row.qty || 0)} | $${Number(row.line_total || 0).toFixed(2)}`)
     : [];
 
-  const body = payload.body || [
-    `Order ID: ${payload.order_id}`,
-    `Customer: ${payload.customer_name}`,
-    `Customer email: ${toEmail}`,
-    `Phone: ${payload.customer_phone}`,
-    `Address: ${payload.address}`,
-    "",
-    "Items:",
-    lines.join("\n"),
-    "",
-    `Grand total: $${Number(payload.total || 0).toFixed(2)}`
-  ].join("\n");
-  const htmlBody = buildOrderEmailHtml(payload, toEmail);
+  const body = payload.body || (
+    isShippedEmail
+      ? [
+        `Order ID: ${payload.order_id}`,
+        `Customer: ${payload.customer_name}`,
+        `Customer email: ${toEmail}`,
+        "",
+        "Good news: your order has been shipped.",
+        "",
+        "Items:",
+        lines.join("\n")
+      ].join("\n")
+      : [
+        `Order ID: ${payload.order_id}`,
+        `Customer: ${payload.customer_name}`,
+        `Customer email: ${toEmail}`,
+        `Phone: ${payload.customer_phone}`,
+        `Address: ${payload.address}`,
+        "",
+        "Items:",
+        lines.join("\n"),
+        "",
+        `Grand total: $${Number(payload.total || 0).toFixed(2)}`
+      ].join("\n")
+  );
+  const htmlBody = isShippedEmail ? buildShippedEmailHtml(payload, toEmail) : buildOrderEmailHtml(payload, toEmail);
 
   const transporter = nodemailer.createTransport({
     host: smtpHost,
@@ -236,7 +307,9 @@ exports.handler = async (event) => {
   const message = {
     from: fromEmail,
     to: toEmail,
-    subject: `Your Curated Kadha Order - ${payload.order_id}`,
+    subject: isShippedEmail
+      ? `Your Curated Kadha Order Has Shipped - ${payload.order_id}`
+      : `Your Curated Kadha Order - ${payload.order_id}`,
     text: body,
     html: htmlBody
   };
@@ -245,7 +318,7 @@ exports.handler = async (event) => {
   const supabase = getSupabaseClient();
   const soldOutWarnings = [];
 
-  if (supabase) {
+  if (supabase && !isShippedEmail) {
     try {
       await supabase.from("orders").insert([{
         order_id: String(payload.order_id),
@@ -328,7 +401,7 @@ exports.handler = async (event) => {
     message.bcc = bccRecipients.join(", ");
   }
 
-  if (soldOutWarnings.length > 0) {
+  if (!isShippedEmail && soldOutWarnings.length > 0) {
     const warningTextLines = [
       "",
       "⚠️ SOLD OUT WARNING ⚠️",

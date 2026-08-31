@@ -102,6 +102,7 @@ const state = {
   stockSyncStatusHtml: "",
   ordersTabFilter: "all",
   ordersList: [],
+  selectedOrderId: "",
   shippingMethod: "normal",
   isCartModalOpen: false,
   orderSuccessMessage: "",
@@ -2987,6 +2988,24 @@ async function sendOrderEmailSecure(orderPayload) {
   return response.json();
 }
 
+function buildOrderEmailPayloadFromRecord(order, extra = {}) {
+  if (!order || typeof order !== "object") return null;
+  return {
+    order_id: String(order.order_id || "").trim(),
+    created_utc: order.created_at || order.created_utc || new Date().toISOString(),
+    customer_name: String(order.customer_name || ""),
+    customer_email: String(order.customer_email || ""),
+    customer_phone: String(order.customer_phone || ""),
+    address: String(order.address || ""),
+    items_total: Number(order.items_total || order.total || 0),
+    shipping_method: String(order.shipping_method || "Standard Shipping"),
+    shipping_cost: Number(order.shipping_cost || 0),
+    total: Number(order.total || 0),
+    items: Array.isArray(order.items) ? order.items : [],
+    ...extra
+  };
+}
+
 function renderStock() {
   ensureSessionValidity();
   if (!state.stockAuth) {
@@ -3219,6 +3238,7 @@ async function renderOrdersTab() {
         <button type="button" class="chip ${state.ordersTabFilter === "all" ? "active" : ""}" id="orderFilterAllBtn">All Orders</button>
         <button type="button" class="chip ${state.ordersTabFilter === "pending" ? "active" : ""}" id="orderFilterPendingBtn">⏳ Pending</button>
         <button type="button" class="chip ${state.ordersTabFilter === "completed" ? "active" : ""}" id="orderFilterCompletedBtn">✅ Completed</button>
+        <button type="button" class="chip ${state.ordersTabFilter === "shipped" ? "active" : ""}" id="orderFilterShippedBtn">🚚 Shipped</button>
       </div>
 
       <div id="ordersLoadingMsg"><p class="notice">Loading orders...</p></div>
@@ -3236,6 +3256,10 @@ async function renderOrdersTab() {
   });
   document.getElementById("orderFilterCompletedBtn")?.addEventListener("click", () => {
     state.ordersTabFilter = "completed";
+    renderOrdersTab();
+  });
+  document.getElementById("orderFilterShippedBtn")?.addEventListener("click", () => {
+    state.ordersTabFilter = "shipped";
     renderOrdersTab();
   });
 
@@ -3258,13 +3282,22 @@ async function renderOrdersTab() {
     const status = String(order.status || "pending").toLowerCase();
     if (state.ordersTabFilter === "pending") return status === "pending";
     if (state.ordersTabFilter === "completed") return status === "completed";
+    if (state.ordersTabFilter === "shipped") return status === "shipped";
     return true;
   });
 
   if (filteredOrders.length === 0) {
+    state.selectedOrderId = "";
     container.innerHTML = `<p class="notice warning">No ${state.ordersTabFilter === "all" ? "" : state.ordersTabFilter} orders found.</p>`;
     return;
   }
+
+  const selectedOrderExists = filteredOrders.some((order) => String(order.order_id) === String(state.selectedOrderId));
+  if (!selectedOrderExists) {
+    state.selectedOrderId = String(filteredOrders[0].order_id || "");
+  }
+
+  const selectedOrder = filteredOrders.find((order) => String(order.order_id) === String(state.selectedOrderId)) || filteredOrders[0];
 
   container.innerHTML = `
     <div class="orders-table-wrap" style="overflow-x:auto; margin-bottom:1.5rem; border:1px solid var(--line); border-radius:10px; background:#ffffff;">
@@ -3282,7 +3315,10 @@ async function renderOrdersTab() {
         </thead>
         <tbody>
           ${filteredOrders.map((order) => {
-            const isCompleted = String(order.status || "pending").toLowerCase() === "completed";
+            const status = String(order.status || "pending").toLowerCase();
+            const isCompleted = status === "completed";
+            const isShipped = status === "shipped";
+            const isSelected = String(order.order_id) === String(state.selectedOrderId);
             const orderDate = new Date(order.created_at || order.created_utc || Date.now()).toLocaleDateString("en-NZ", {
               day: "numeric",
               month: "short",
@@ -3292,7 +3328,7 @@ async function renderOrdersTab() {
             const itemSummary = itemsArr.map((i) => `${escapeHtml(i.title || "Item")}${i.size ? ` (${escapeHtml(formatSizeLabel(i.size))})` : ""}`).join(", ");
 
             return `
-              <tr style="border-bottom:1px solid #eee;">
+              <tr data-order-row="${escapeHtml(order.order_id)}" style="border-bottom:1px solid #eee; cursor:pointer; ${isSelected ? "background:#f5efe8;" : ""}">
                 <td style="padding:0.75rem 0.85rem; font-weight:700;">#${escapeHtml(order.order_id)}</td>
                 <td style="padding:0.75rem 0.85rem; color:#666; white-space:nowrap;">${escapeHtml(orderDate)}</td>
                 <td style="padding:0.75rem 0.85rem;">
@@ -3302,14 +3338,15 @@ async function renderOrdersTab() {
                 <td style="padding:0.75rem 0.85rem; max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(itemSummary)}">${escapeHtml(itemSummary)}</td>
                 <td style="padding:0.75rem 0.85rem; font-weight:700; white-space:nowrap;">${formatMoney(order.total)}</td>
                 <td style="padding:0.75rem 0.85rem;">
-                  <span style="display:inline-block; padding:0.25rem 0.6rem; border-radius:999px; font-size:0.78rem; font-weight:700; ${isCompleted ? "background:#e3f2fd; color:#0d47a1;" : "background:#fff3e0; color:#e65100;"}">
-                    ${isCompleted ? "Completed" : "Pending"}
+                  <span style="display:inline-block; padding:0.25rem 0.6rem; border-radius:999px; font-size:0.78rem; font-weight:700; ${isShipped ? "background:#e8f5e9; color:#1b5e20;" : isCompleted ? "background:#e3f2fd; color:#0d47a1;" : "background:#fff3e0; color:#e65100;"}">
+                    ${isShipped ? "Shipped" : isCompleted ? "Completed" : "Pending"}
                   </span>
                 </td>
                 <td style="padding:0.75rem 0.85rem;">
                   <select class="order-status-select" data-order-id="${escapeHtml(order.order_id)}" style="padding:0.35rem 0.5rem; font-size:0.82rem; border-radius:6px; min-height:auto; width:auto;">
-                    <option value="pending" ${!isCompleted ? "selected" : ""}>Pending</option>
-                    <option value="completed" ${isCompleted ? "selected" : ""}>Completed</option>
+                    <option value="pending" ${status === "pending" ? "selected" : ""}>Pending</option>
+                    <option value="completed" ${status === "completed" ? "selected" : ""}>Completed</option>
+                    <option value="shipped" ${status === "shipped" ? "selected" : ""}>Shipped</option>
                   </select>
                 </td>
               </tr>
@@ -3319,77 +3356,96 @@ async function renderOrdersTab() {
       </table>
     </div>
 
-    <h3 style="margin-top:1.75rem; margin-bottom:1rem; font-size:1.15rem;">Order Details Cards</h3>
-    <div style="display:flex; flex-direction:column; gap:1.25rem;">
-      ${filteredOrders.map((order) => {
-        const isCompleted = String(order.status || "pending").toLowerCase() === "completed";
-        const orderDate = new Date(order.created_at || order.created_utc || Date.now()).toLocaleString("en-NZ", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true
-        });
+    <h3 style="margin-top:1.75rem; margin-bottom:1rem; font-size:1.15rem;">Selected Order Details</h3>
+    ${(() => {
+      const order = selectedOrder;
+      if (!order) {
+        return '<p class="notice warning">Select an order from the table to view details.</p>';
+      }
+      const status = String(order.status || "pending").toLowerCase();
+      const isCompleted = status === "completed";
+      const isShipped = status === "shipped";
+      const orderDate = new Date(order.created_at || order.created_utc || Date.now()).toLocaleString("en-NZ", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+      });
 
-        const itemsArr = Array.isArray(order.items) ? order.items : [];
+      const itemsArr = Array.isArray(order.items) ? order.items : [];
 
-        return `
-          <div class="order-card-panel" style="border:1px solid var(--line); border-radius:12px; padding:1.2rem; background:#ffffff; box-shadow:0 2px 8px rgba(0,0,0,0.04);">
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; border-bottom:1px solid #eee; padding-bottom:0.85rem; margin-bottom:1rem;">
-              <div>
-                <strong style="font-size:1.15rem; color:var(--brand); display:inline-block; margin-right:0.4rem;">Order #${escapeHtml(order.order_id)}</strong>
-                <span style="font-size:0.82rem; color:#777; display:inline-block;">${escapeHtml(orderDate)}</span>
-              </div>
-              <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-                <select class="order-status-select" data-order-id="${escapeHtml(order.order_id)}" style="padding:0.35rem 0.65rem; font-size:0.85rem; border-radius:6px; min-height:auto;">
-                  <option value="pending" ${!isCompleted ? "selected" : ""}>⏳ Pending</option>
-                  <option value="completed" ${isCompleted ? "selected" : ""}>✅ Completed</option>
-                </select>
-                <div style="font-size:1.15rem; font-weight:700; color:#1c140d;">
-                  ${formatMoney(order.total)}
-                </div>
-              </div>
+      return `
+        <div class="order-card-panel" style="border:1px solid var(--line); border-radius:12px; padding:1.2rem; background:#ffffff; box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; border-bottom:1px solid #eee; padding-bottom:0.85rem; margin-bottom:1rem;">
+            <div>
+              <strong style="font-size:1.15rem; color:var(--brand); display:inline-block; margin-right:0.4rem;">Order #${escapeHtml(order.order_id)}</strong>
+              <span style="font-size:0.82rem; color:#777; display:inline-block;">${escapeHtml(orderDate)}</span>
             </div>
-
-            <div class="order-card-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1rem; margin-bottom:1.1rem; background:#fbf9f6; padding:1rem; border-radius:9px; border:1px solid #efe8e0;">
-              <div>
-                <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Customer Info</strong>
-                <div style="font-weight:600; color:#2a2017; font-size:0.95rem;">👤 ${escapeHtml(order.customer_name)}</div>
-                <div style="font-size:0.88rem; color:#4a3729; margin-top:0.3rem; word-break:break-all;">✉️ <a href="mailto:${escapeHtml(order.customer_email)}" style="color:inherit;">${escapeHtml(order.customer_email)}</a></div>
-                <div style="font-size:0.88rem; color:#4a3729; margin-top:0.3rem;">📞 ${escapeHtml(order.customer_phone)}</div>
+            <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+              <select class="order-status-select" data-order-id="${escapeHtml(order.order_id)}" style="padding:0.35rem 0.65rem; font-size:0.85rem; border-radius:6px; min-height:auto;">
+                <option value="pending" ${status === "pending" ? "selected" : ""}>⏳ Pending</option>
+                <option value="completed" ${isCompleted ? "selected" : ""}>✅ Completed</option>
+                <option value="shipped" ${isShipped ? "selected" : ""}>🚚 Shipped</option>
+              </select>
+              <div style="font-size:1.15rem; font-weight:700; color:#1c140d;">
+                ${formatMoney(order.total)}
               </div>
-
-              <div>
-                <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Delivery Address</strong>
-                <div style="font-size:0.88rem; color:#2a2017; line-height:1.45; word-break:break-word;">📍 ${escapeHtml(order.address)}</div>
-                <div style="font-size:0.85rem; color:var(--brand); margin-top:0.5rem; font-weight:600;">🚚 ${escapeHtml(order.shipping_method || "Standard Shipping")} (${formatMoney(order.shipping_cost || 7)})</div>
-              </div>
-            </div>
-
-            <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.6rem;">Ordered Items (${itemsArr.length})</strong>
-            <div style="display:flex; flex-direction:column; gap:0.6rem;">
-              ${itemsArr.map((item) => `
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; font-size:0.9rem; padding:0.55rem 0.75rem; background:#fff; border:1px solid #ece6de; border-radius:7px;">
-                  <div style="display:flex; align-items:center; flex-wrap:wrap; gap:0.4rem; min-width:0;">
-                    <strong style="word-break:break-word;">${escapeHtml(item.title || "Item")}</strong>
-                    ${item.size ? `<span style="font-size:0.78rem; background:#f0f4ee; color:#284521; padding:0.12rem 0.45rem; border-radius:4px; font-weight:600;">Size: ${escapeHtml(formatSizeLabel(item.size))}</span>` : ""}
-                    <span style="font-size:0.82rem; color:#777;">× ${item.qty || 1}</span>
-                  </div>
-                  <strong style="margin-left:auto;">${formatMoney(item.line_total || item.price || 0)}</strong>
-                </div>
-              `).join("")}
             </div>
           </div>
-        `;
-      }).join("")}
-    </div>
+
+          <div class="order-card-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1rem; margin-bottom:1.1rem; background:#fbf9f6; padding:1rem; border-radius:9px; border:1px solid #efe8e0;">
+            <div>
+              <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Customer Info</strong>
+              <div style="font-weight:600; color:#2a2017; font-size:0.95rem;">👤 ${escapeHtml(order.customer_name)}</div>
+              <div style="font-size:0.88rem; color:#4a3729; margin-top:0.3rem; word-break:break-all;">✉️ <a href="mailto:${escapeHtml(order.customer_email)}" style="color:inherit;">${escapeHtml(order.customer_email)}</a></div>
+              <div style="font-size:0.88rem; color:#4a3729; margin-top:0.3rem;">📞 ${escapeHtml(order.customer_phone)}</div>
+            </div>
+
+            <div>
+              <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Delivery Address</strong>
+              <div style="font-size:0.88rem; color:#2a2017; line-height:1.45; word-break:break-word;">📍 ${escapeHtml(order.address)}</div>
+              <div style="font-size:0.85rem; color:var(--brand); margin-top:0.5rem; font-weight:600;">🚚 ${escapeHtml(order.shipping_method || "Standard Shipping")} (${formatMoney(order.shipping_cost || 7)})</div>
+            </div>
+          </div>
+
+          <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.6rem;">Ordered Items (${itemsArr.length})</strong>
+          <div style="display:flex; flex-direction:column; gap:0.6rem;">
+            ${itemsArr.map((item) => `
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; font-size:0.9rem; padding:0.55rem 0.75rem; background:#fff; border:1px solid #ece6de; border-radius:7px;">
+                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:0.4rem; min-width:0;">
+                  <strong style="word-break:break-word;">${escapeHtml(item.title || "Item")}</strong>
+                  ${item.size ? `<span style="font-size:0.78rem; background:#f0f4ee; color:#284521; padding:0.12rem 0.45rem; border-radius:4px; font-weight:600;">Size: ${escapeHtml(formatSizeLabel(item.size))}</span>` : ""}
+                  <span style="font-size:0.82rem; color:#777;">× ${item.qty || 1}</span>
+                </div>
+                <strong style="margin-left:auto;">${formatMoney(item.line_total || item.price || 0)}</strong>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    })()}
   `;
 
+  document.querySelectorAll("[data-order-row]").forEach((rowNode) => {
+    rowNode.addEventListener("click", () => {
+      const orderId = rowNode.getAttribute("data-order-row");
+      if (!orderId) return;
+      state.selectedOrderId = orderId;
+      renderOrdersTab();
+    });
+  });
+
   document.querySelectorAll(".order-status-select").forEach((selectNode) => {
+    selectNode.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
     selectNode.addEventListener("change", async (e) => {
       const orderId = e.target.getAttribute("data-order-id");
       const newStatus = e.target.value;
+      let statusEmailError = "";
+
       try {
         const res = await fetch(CATALOG_API_URL, {
           method: "POST",
@@ -3403,7 +3459,22 @@ async function renderOrdersTab() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
         if (found) found.status = newStatus;
+
+        if (newStatus === "shipped" && found) {
+          const shippedPayload = buildOrderEmailPayloadFromRecord(found, { email_type: "shipped" });
+          if (shippedPayload) {
+            try {
+              await sendOrderEmailSecure(shippedPayload);
+            } catch (emailErr) {
+              statusEmailError = emailErr instanceof Error ? emailErr.message : String(emailErr);
+            }
+          }
+        }
+
         renderOrdersTab();
+        if (statusEmailError) {
+          alert(`Order was marked as shipped, but the shipped email could not be sent: ${statusEmailError}`);
+        }
       } catch (err) {
         alert(`Failed to update order status: ${err.message}`);
       }

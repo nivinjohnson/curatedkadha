@@ -98,6 +98,7 @@ const state = {
     size: "all"
   },
   stockTab: "products",
+  stockSyncStatusHtml: "",
   ordersTabFilter: "all",
   ordersList: [],
   shippingMethod: "normal",
@@ -2954,7 +2955,7 @@ function renderStock() {
           <div class="metric">Available stock<b>${overview.available}</b></div>
           <div class="metric">Sold out / unavailable<b>${overview.soldOut}</b></div>
         </div>
-        <div id="stockSyncMessage"></div>
+        <div id="stockSyncMessage">${state.stockSyncStatusHtml || ""}</div>
 
         <div class="chip-row" style="margin-top: 1.25rem; border-bottom: 1px solid var(--line); padding-bottom: 0.5rem;">
           <button type="button" class="chip ${state.stockTab === "products" ? "active" : ""}" id="tabProductsBtn">📦 Products Catalog</button>
@@ -3050,19 +3051,22 @@ function renderProductsTab(filtered) {
     stockSyncExcelBtn.addEventListener("click", async () => {
       const messageNode = document.getElementById("stockSyncMessage");
       stockSyncExcelBtn.disabled = true;
+      state.stockSyncStatusHtml = '<p class="notice">Reading data_from_insta and updating DB...</p>';
       if (messageNode) {
-        messageNode.innerHTML = '<p class="notice">Reading data_from_insta and updating DB...</p>';
+        messageNode.innerHTML = state.stockSyncStatusHtml;
       }
 
       try {
         const result = await syncInstagramDataToDatabase({ insertOnly: false });
+        state.stockSyncStatusHtml = `<p class="notice">✓ Updated DB from Instagram source. ${escapeHtml(result.note || `${result.insertedCount} records processed.`)}</p>`;
         if (messageNode) {
-          messageNode.innerHTML = `<p class="notice">✓ Updated DB from Instagram source. ${escapeHtml(result.note || `${result.insertedCount} records processed.`)}</p>`;
+          messageNode.innerHTML = state.stockSyncStatusHtml;
         }
         renderRoute();
       } catch (error) {
+        state.stockSyncStatusHtml = `<p class="notice error">Instagram update failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
         if (messageNode) {
-          messageNode.innerHTML = `<p class="notice error">Instagram update failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+          messageNode.innerHTML = state.stockSyncStatusHtml;
         }
       } finally {
         stockSyncExcelBtn.disabled = false;
@@ -3071,6 +3075,7 @@ function renderProductsTab(filtered) {
   }
 
   document.getElementById("stockLogoutBtn").addEventListener("click", () => {
+    state.stockSyncStatusHtml = "";
     clearStockSession();
     renderStock();
   });

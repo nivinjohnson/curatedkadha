@@ -284,6 +284,23 @@ function sanitizeInsertProduct(product) {
   return clean;
 }
 
+function summarizeProductForResult(product) {
+  return {
+    group_id: String(product?.group_id || "").trim(),
+    title: String(product?.title || "").trim() || "Untitled product"
+  };
+}
+
+function buildProductFailure(product, error) {
+  return {
+    ...summarizeProductForResult(product),
+    error: String(error?.message || "Unknown database error"),
+    code: error?.code || null,
+    details: error?.details || null,
+    hint: error?.hint || null
+  };
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return json(200, {});
 
@@ -507,21 +524,72 @@ exports.handler = async (event) => {
           });
         }
 
-        const { data, error } = await supabase.from(TABLE_NAME).insert(newProducts).select();
-        if (error) return json(500, { ok: false, error: error.message });
-        return json(200, {
+        const insertedProducts = [];
+        const failedProducts = [];
+        for (const product of newProducts) {
+          const { data, error } = await supabase.from(TABLE_NAME).insert([product]).select();
+          if (error) {
+            failedProducts.push(buildProductFailure(product, error));
+            continue;
+          }
+          if (Array.isArray(data) && data[0]) {
+            insertedProducts.push(data[0]);
+          } else {
+            insertedProducts.push(summarizeProductForResult(product));
+          }
+        }
+
+        const insertedCount = insertedProducts.length;
+        const failedCount = failedProducts.length;
+        const skippedCount = incomingProducts.length - newProducts.length;
+        const partial = failedCount > 0;
+
+        return json(partial ? 207 : 200, {
           ok: true,
-          insertedCount: newProducts.length,
-          skippedCount: incomingProducts.length - newProducts.length,
+          partial,
+          insertedCount,
+          failedCount,
+          skippedCount,
           totalExisting: existingSet.size,
-          products: data,
-          message: `Inserted ${newProducts.length} new products. Preserved ${incomingProducts.length - newProducts.length} existing products without modifications.`
+          products: insertedProducts,
+          failedProducts,
+          message: partial
+            ? `Partial insert completed: ${insertedCount} inserted, ${failedCount} failed, ${skippedCount} skipped.`
+            : `Inserted ${insertedCount} new products. Preserved ${skippedCount} existing products without modifications.`
         });
       }
 
-      const { data, error } = await supabase.from(TABLE_NAME).upsert(incomingProducts, { onConflict: "group_id" }).select();
-      if (error) return json(500, { ok: false, error: error.message });
-      return json(200, { ok: true, count: data.length, products: data });
+      const syncedProducts = [];
+      const failedProducts = [];
+      for (const product of incomingProducts) {
+        const { data, error } = await supabase.from(TABLE_NAME).upsert([product], { onConflict: "group_id" }).select();
+        if (error) {
+          failedProducts.push(buildProductFailure(product, error));
+          continue;
+        }
+        if (Array.isArray(data) && data[0]) {
+          syncedProducts.push(data[0]);
+        } else {
+          syncedProducts.push(summarizeProductForResult(product));
+        }
+      }
+
+      const count = syncedProducts.length;
+      const failedCount = failedProducts.length;
+      const partial = failedCount > 0;
+
+      return json(partial ? 207 : 200, {
+        ok: true,
+        partial,
+        count,
+        insertedCount: count,
+        failedCount,
+        products: syncedProducts,
+        failedProducts,
+        message: partial
+          ? `Partial sync completed: ${count} succeeded, ${failedCount} failed.`
+          : `Sync completed successfully for ${count} products.`
+      });
     } catch (error) {
       return json(500, { ok: false, error: error.message });
     }

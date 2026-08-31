@@ -994,9 +994,35 @@ async function syncInstagramDataToDatabase(options = {}) {
   return {
     insertedCount: Number(result.insertedCount ?? result.count ?? 0),
     skippedCount: Number(result.skippedCount ?? 0),
+    failedCount: Number(result.failedCount ?? 0),
+    failedProducts: Array.isArray(result.failedProducts) ? result.failedProducts : [],
     mode: insertOnly ? "insert_only" : "upsert",
     note: String(result.message || result.note || "")
   };
+}
+
+function buildStockSyncFailureHtml(result) {
+  const failures = Array.isArray(result?.failedProducts) ? result.failedProducts : [];
+  if (failures.length === 0) {
+    return "";
+  }
+
+  const previewLimit = 8;
+  const rows = failures.slice(0, previewLimit).map((item) => {
+    const groupId = String(item?.group_id || "").trim() || "(missing group_id)";
+    const title = String(item?.title || "").trim();
+    const errorText = String(item?.error || "Unknown database error");
+    return `<li><strong>${escapeHtml(groupId)}</strong>${title ? ` - ${escapeHtml(title)}` : ""}: ${escapeHtml(errorText)}</li>`;
+  }).join("");
+
+  const moreCount = Math.max(0, failures.length - previewLimit);
+  return `
+    <div class="notice error" style="margin-top:0.6rem;">
+      <p>Failed products (${failures.length}):</p>
+      <ul style="margin:0.45rem 0 0 1.1rem;">${rows}</ul>
+      ${moreCount > 0 ? `<p style="margin-top:0.45rem;">+${moreCount} more failed product(s) not shown.</p>` : ""}
+    </div>
+  `;
 }
 
 async function saveCatalogToServer(products) {
@@ -3013,10 +3039,13 @@ function renderStock() {
 
       try {
         const result = await syncInstagramDataToDatabase({ insertOnly: false });
-        const defaultStatus = result.insertedCount > 0
-          ? `${result.insertedCount} records processed.`
-          : "No product changes were detected.";
-        state.stockSyncStatusHtml = `<p class="notice">✓ Updated DB from Instagram source. ${escapeHtml(result.note || defaultStatus)}</p>`;
+        const defaultStatus = result.failedCount > 0
+          ? `Partial update: ${result.insertedCount} succeeded, ${result.failedCount} failed${result.skippedCount > 0 ? `, ${result.skippedCount} skipped` : ""}.`
+          : result.insertedCount > 0
+            ? `${result.insertedCount} records processed.`
+            : "No product changes were detected.";
+        const statusClass = result.failedCount > 0 ? "notice warning" : "notice";
+        state.stockSyncStatusHtml = `<p class="${statusClass}">✓ Updated DB from Instagram source. ${escapeHtml(result.note || defaultStatus)}</p>${buildStockSyncFailureHtml(result)}`;
       } catch (error) {
         state.stockSyncStatusHtml = `<p class="notice error">Instagram update failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
       } finally {

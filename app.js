@@ -3389,6 +3389,7 @@ async function renderOrdersTab() {
                 <option value="completed" ${isCompleted ? "selected" : ""}>✅ Completed</option>
                 <option value="shipped" ${isShipped ? "selected" : ""}>🚚 Shipped</option>
               </select>
+              <button type="button" class="secondary send-shipped-mail-btn" data-order-id="${escapeHtml(order.order_id)}" style="min-height:auto; padding:0.45rem 0.7rem; font-size:0.82rem;">Send Shipped Mail</button>
               <div style="font-size:1.15rem; font-weight:700; color:#1c140d;">
                 ${formatMoney(order.total)}
               </div>
@@ -3444,7 +3445,6 @@ async function renderOrdersTab() {
     selectNode.addEventListener("change", async (e) => {
       const orderId = e.target.getAttribute("data-order-id");
       const newStatus = e.target.value;
-      let statusEmailError = "";
 
       try {
         const res = await fetch(CATALOG_API_URL, {
@@ -3460,23 +3460,40 @@ async function renderOrdersTab() {
         const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
         if (found) found.status = newStatus;
 
-        if (newStatus === "shipped" && found) {
-          const shippedPayload = buildOrderEmailPayloadFromRecord(found, { email_type: "shipped" });
-          if (shippedPayload) {
-            try {
-              await sendOrderEmailSecure(shippedPayload);
-            } catch (emailErr) {
-              statusEmailError = emailErr instanceof Error ? emailErr.message : String(emailErr);
-            }
-          }
-        }
-
         renderOrdersTab();
-        if (statusEmailError) {
-          alert(`Order was marked as shipped, but the shipped email could not be sent: ${statusEmailError}`);
-        }
       } catch (err) {
         alert(`Failed to update order status: ${err.message}`);
+      }
+    });
+  });
+
+  document.querySelectorAll(".send-shipped-mail-btn").forEach((buttonNode) => {
+    buttonNode.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const orderId = buttonNode.getAttribute("data-order-id");
+      const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
+      if (!found) {
+        alert("Could not find order details to send email.");
+        return;
+      }
+
+      const shippedPayload = buildOrderEmailPayloadFromRecord(found, { email_type: "shipped" });
+      if (!shippedPayload) {
+        alert("Could not build shipped email payload.");
+        return;
+      }
+
+      const originalText = buttonNode.textContent;
+      buttonNode.disabled = true;
+      buttonNode.textContent = "Sending...";
+      try {
+        await sendOrderEmailSecure(shippedPayload);
+        alert(`Shipped email sent for order #${orderId}.`);
+      } catch (mailErr) {
+        alert(`Could not send shipped email: ${mailErr instanceof Error ? mailErr.message : String(mailErr)}`);
+      } finally {
+        buttonNode.disabled = false;
+        buttonNode.textContent = originalText || "Send Shipped Mail";
       }
     });
   });

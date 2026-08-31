@@ -32,8 +32,8 @@ function buildOrderEmailHtml(payload, toEmail) {
     const lineTotal = Number(row.line_total || 0);
     const imageUrl = String(row.image_url || "").trim();
     const imageBlock = imageUrl
-      ? `<img src="${escapeHtml(imageUrl)}" alt="${title}" style="width:100%;max-width:180px;height:180px;object-fit:cover;border-radius:14px;border:1px solid #eadccc;display:block;" />`
-      : '<div style="width:100%;max-width:180px;height:180px;border-radius:14px;border:1px solid #eadccc;background:#f6efe6;color:#8b6f4e;display:flex;align-items:center;justify-content:center;font-size:13px;">No image</div>';
+      ? `<img src="${escapeHtml(imageUrl)}" alt="${title}" style="width:100%;max-width:120px;height:120px;object-fit:cover;border-radius:12px;border:1px solid #eadccc;display:block;" />`
+      : '<div style="width:100%;max-width:120px;height:120px;border-radius:12px;border:1px solid #eadccc;background:#f6efe6;color:#8b6f4e;display:flex;align-items:center;justify-content:center;font-size:12px;">No image</div>';
 
     return [
       "<tr>",
@@ -108,20 +108,6 @@ function buildOrderEmailHtml(payload, toEmail) {
     "</table>",
     "</td>",
     "</tr>",
-
-    "<tr>",
-    '<td style="padding:20px 24px 0;">',
-    '<div style="background:#fff7ee;border:1px solid #eadccc;border-radius:12px;padding:18px;">',
-    '<h2 style="margin:0 0 12px;font-size:18px;color:#24190f;">Payment Instructions</h2>',
-    `<p style="margin:0 0 10px;font-size:14px;line-height:1.6;color:#5f4836;">Please pay <strong>${grandTotal}</strong> to the following bank account to start the shipping process.</p>`,
-    '<div style="font-size:20px;font-weight:700;color:#20150b;margin-bottom:10px;">06-0301-0600835-01</div>',
-    '<p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#5f4836;"><strong>Reference:</strong> Your Name</p>',
-    '<p style="margin:0;font-size:14px;line-height:1.6;color:#5f4836;">Once payment is received, we will begin processing and shipping your order.</p>',
-    '<p style="margin:10px 0 0;font-size:14px;line-height:1.6;color:#5f4836;">If you need to get in touch, please contact us via mail or message <strong>@curatedkadha</strong> on Instagram.</p>',
-    '</div>',
-    "</td>",
-    "</tr>",
-
     "<tr>",
     '<td style="padding:18px 24px 24px;">',
     '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:2px dashed #eddcc7;padding-top:14px;">',

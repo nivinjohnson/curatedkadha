@@ -302,8 +302,8 @@ function buildOrderEmailHtml(payload, toEmail) {
       const lineTotal = Number(row.line_total || 0);
       const imageUrl = String(row.image_url || "").trim();
       const imageBlock = imageUrl
-        ? `<img src="${escapeHtml(imageUrl)}" alt="${title}" style="width:100%;max-width:180px;height:180px;object-fit:cover;border-radius:14px;border:1px solid #eadccc;display:block;" />`
-        : '<div style="width:100%;max-width:180px;height:180px;border-radius:14px;border:1px solid #eadccc;background:#f6efe6;color:#8b6f4e;display:flex;align-items:center;justify-content:center;font-size:13px;">No image</div>';
+        ? `<img src="${escapeHtml(imageUrl)}" alt="${title}" style="width:100%;max-width:120px;height:120px;object-fit:cover;border-radius:12px;border:1px solid #eadccc;display:block;" />`
+        : '<div style="width:100%;max-width:120px;height:120px;border-radius:12px;border:1px solid #eadccc;background:#f6efe6;color:#8b6f4e;display:flex;align-items:center;justify-content:center;font-size:12px;">No image</div>';
 
       return [
         "<tr>",

@@ -422,6 +422,7 @@ async function start() {
   try {
     hydrateSession();
     registerSessionActivityHooks();
+    initHamburgerMenu();
     const cachedProducts = loadCatalogCache();
 
     if (cachedProducts.length > 0) {
@@ -3794,9 +3795,8 @@ function renderStockEditor(filteredRows) {
         <p>Sizes from parser: ${escapeHtml(parsed.sizeMentions || "")}</p>
         <p>Sold sizes from parser: ${escapeHtml(parsed.soldSizes || "")}</p>
 
-        <div class="field" style="margin-top: 1rem; display:grid; grid-template-columns: 1fr 1fr; gap:0.6rem;">
-          <button id="saveStockBtn" style="min-height: 46px; font-size: 1rem;">Update product</button>
-          <button id="deleteStockBtn" type="button" class="secondary" style="min-height: 46px; font-size: 1rem; border-color:#b73434; color:#8a1f1f;">Delete product</button>
+        <div class="field" style="margin-top: 1rem;">
+          <button id="saveStockBtn" style="width: 100%; min-height: 46px; font-size: 1rem;">Update product</button>
         </div>
         <div id="stockSaveMessage"></div>
       </div>
@@ -3860,48 +3860,6 @@ function renderStockEditor(filteredRows) {
       saveButton.disabled = false;
       saveButton.textContent = "Update product";
       messageNode.innerHTML = `<p class="notice error">Could not update the Excel file: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
-    }
-  });
-
-  document.getElementById("deleteStockBtn").addEventListener("click", async () => {
-    const saveButton = document.getElementById("saveStockBtn");
-    const deleteButton = document.getElementById("deleteStockBtn");
-    const messageNode = document.getElementById("stockSaveMessage");
-    const titleText = String(current.title || "this product").trim();
-    const ok = window.confirm(`Delete \"${titleText}\" (${current.group_id}) from the catalog? This cannot be undone.`);
-    if (!ok) {
-      return;
-    }
-
-    const previousProducts = state.products;
-    const remainingProducts = state.products.filter((item) => item.group_id !== current.group_id);
-
-    saveButton.disabled = true;
-    deleteButton.disabled = true;
-    deleteButton.textContent = "Deleting...";
-    messageNode.innerHTML = '<p class="notice">Deleting product from product_info/product_catalog.xlsx...</p>';
-
-    try {
-      await saveCatalogToServer(remainingProducts);
-      state.products = remainingProducts.map(normalizeCatalogProduct);
-      if (state.stockEdits[current.group_id]) {
-        delete state.stockEdits[current.group_id];
-      }
-      if (Object.keys(state.stockEdits).length === 0) {
-        localStorage.removeItem(EDITS_KEY);
-      } else {
-        localStorage.setItem(EDITS_KEY, JSON.stringify(state.stockEdits));
-      }
-      state.selectedStockGroupId = state.products[0]?.group_id || "";
-      state.stockSyncStatusHtml = `<p class="notice">Deleted product: ${escapeHtml(titleText)} (${escapeHtml(current.group_id)}).</p>`;
-      saveCatalogCache(state.products);
-      renderStock();
-    } catch (error) {
-      state.products = previousProducts;
-      saveButton.disabled = false;
-      deleteButton.disabled = false;
-      deleteButton.textContent = "Delete product";
-      messageNode.innerHTML = `<p class="notice error">Could not delete the product: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
     }
   });
 }

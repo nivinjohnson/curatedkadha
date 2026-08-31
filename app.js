@@ -1358,7 +1358,32 @@ function renderAbout() {
   app.innerHTML = `
     <section class="shop-layout">
       <section class="about-wrap" id="aboutSection">
-        <article class="about-content">
+        <details class="detail-size-chart-details" id="homeSizeChart" style="margin-top: 1.25rem;">
+          <summary class="detail-size-chart-summary">
+            <span>View Size Chart</span>
+          </summary>
+          <div class="detail-size-chart-body">
+            <img src="static/Size%20Chart.jpeg" alt="Size Chart" class="detail-size-chart-img" loading="lazy" />
+          </div>
+        </details>
+
+        <details class="detail-size-chart-details" id="homePolicy" style="margin-top: 1rem;">
+          <summary class="detail-size-chart-summary">
+            <span>Returns, Refunds &amp; Exchanges Policy</span>
+          </summary>
+          <div class="detail-size-chart-body" style="text-align:left; font-size:0.88rem; line-height:1.6; color:#4a423a;">
+            <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Change of Mind</strong>
+            <p style="margin:0 0 0.75rem;">We do not offer refunds, exchanges, or store credits for change-of-mind purchases. Please choose carefully before placing your order.</p>
+
+            <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Faulty, Damaged, or Incorrect Items</strong>
+            <p style="margin:0 0 0.75rem;">If an item arrives damaged, faulty, or is not as described, you may be entitled to a repair, replacement, or refund under the Consumer Guarantees Act 1993. Please contact us within a reasonable time of discovering the issue and provide your order number and photos of the item.</p>
+
+            <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Consumer Guarantees Act</strong>
+            <p style="margin:0;">Nothing in this policy limits or excludes your rights under the Consumer Guarantees Act 1993 or any other applicable New Zealand consumer laws.</p>
+          </div>
+        </details>
+
+        <article class="about-content" style="margin-top: 1.1rem;">
           <div class="about-media">
             ${aboutPhotoMarkup}
           </div>
@@ -1382,31 +1407,6 @@ function renderAbout() {
             </p>
           </div>
         </article>
-
-        <details class="detail-size-chart-details" id="homeSizeChart" style="margin-top: 1.25rem;">
-          <summary class="detail-size-chart-summary">
-            <span>View Size Chart</span>
-          </summary>
-          <div class="detail-size-chart-body">
-            <img src="static/Size%20Chart.jpeg" alt="Size Chart" class="detail-size-chart-img" loading="lazy" />
-          </div>
-        </details>
-
-        <details class="detail-size-chart-details" id="homePolicy" style="margin-top: 0.65rem;">
-          <summary class="detail-size-chart-summary">
-            <span>Returns, Refunds &amp; Exchanges Policy</span>
-          </summary>
-          <div class="detail-size-chart-body" style="text-align:left; font-size:0.88rem; line-height:1.6; color:#4a423a;">
-            <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Change of Mind</strong>
-            <p style="margin:0 0 0.75rem;">We do not offer refunds, exchanges, or store credits for change-of-mind purchases. Please choose carefully before placing your order.</p>
-
-            <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Faulty, Damaged, or Incorrect Items</strong>
-            <p style="margin:0 0 0.75rem;">If an item arrives damaged, faulty, or is not as described, you may be entitled to a repair, replacement, or refund under the Consumer Guarantees Act 1993. Please contact us within a reasonable time of discovering the issue and provide your order number and photos of the item.</p>
-
-            <strong style="display:block; margin-bottom:0.25rem; color:#2c241d;">Consumer Guarantees Act</strong>
-            <p style="margin:0;">Nothing in this policy limits or excludes your rights under the Consumer Guarantees Act 1993 or any other applicable New Zealand consumer laws.</p>
-          </div>
-        </details>
 
         <footer class="about-footer">
           <div class="footer-social-row">

@@ -448,6 +448,106 @@ app.put("/api/product-catalog", (req, res) => handleCatalogSave(req, res, { inse
 
 async function handleCatalogSave(req, res, options = {}) {
   const body = req.body || {};
+
+  if (body.mode === "update") {
+    const groupId = String(body.group_id || "").trim();
+    const product = body.product;
+    if (!groupId) {
+      return res.status(400).json({ ok: false, error: "A group_id is required to update a product." });
+    }
+    if (!product || typeof product !== "object" || Array.isArray(product)) {
+      return res.status(400).json({ ok: false, error: "A valid product object is required." });
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(500).json({ ok: false, error: "Supabase is not configured for DB updates." });
+    }
+
+    const parsedProductDate = product.product_date ? new Date(product.product_date) : null;
+    const safeProductDate = parsedProductDate && !Number.isNaN(parsedProductDate.getTime())
+      ? parsedProductDate.toISOString()
+      : null;
+
+    const updatePayload = {
+      title: String(product.title || "").trim() || "Untitled product",
+      description: String(product.description || ""),
+      dress_description: String(product.dress_description || ""),
+      size_mentions: String(product.size_mentions || ""),
+      sold_sizes: String(product.sold_sizes || ""),
+      tags: String(product.tags || ""),
+      primary_image_file: String(product.primary_image_file || ""),
+      image_files: Array.isArray(product.image_files) ? product.image_files.join(";") : String(product.image_files || ""),
+      permalink: String(product.permalink || ""),
+      product_type: String(product.product_type || "IMAGE"),
+      product_date: safeProductDate,
+      price: Number(product.price || 0),
+      caption_has_sold: Boolean(product.caption_has_sold),
+      item_count: Number(product.item_count || 0),
+      active: Boolean(product.active)
+    };
+
+    if (!Number.isFinite(updatePayload.item_count)) {
+      return res.status(400).json({ ok: false, error: "Item count must be a valid number." });
+    }
+    if (!Number.isFinite(updatePayload.price)) {
+      return res.status(400).json({ ok: false, error: "Price must be a valid number." });
+    }
+
+    try {
+      const { data: rows, error: lookupErr } = await supabase.from("product_info").select("group_id");
+      if (lookupErr) return res.status(500).json({ ok: false, error: lookupErr.message });
+
+      const normalized = groupId.toLowerCase();
+      const found = (rows || []).find((row) => String(row.group_id || "").trim().toLowerCase() === normalized);
+      if (!found) {
+        return res.status(404).json({ ok: false, error: `No product found for group_id "${groupId}".` });
+      }
+
+      const dbGroupId = String(found.group_id);
+      const { data, error } = await supabase
+        .from("product_info")
+        .update(updatePayload)
+        .eq("group_id", dbGroupId)
+        .select();
+
+      if (error) return res.status(500).json({ ok: false, error: error.message });
+      return res.json({ ok: true, count: data?.length || 0, product: data?.[0] || null, matched_group_id: dbGroupId });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  }
+
+  if (body.mode === "delete") {
+    const groupId = String(body.group_id || "").trim();
+    if (!groupId) {
+      return res.status(400).json({ ok: false, error: "A group_id is required to delete a product." });
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return res.status(500).json({ ok: false, error: "Supabase is not configured for DB deletes." });
+    }
+
+    try {
+      const { data: rows, error: lookupErr } = await supabase.from("product_info").select("group_id");
+      if (lookupErr) return res.status(500).json({ ok: false, error: lookupErr.message });
+
+      const normalized = groupId.toLowerCase();
+      const found = (rows || []).find((row) => String(row.group_id || "").trim().toLowerCase() === normalized);
+      if (!found) {
+        return res.status(404).json({ ok: false, error: `No product found for group_id "${groupId}".` });
+      }
+
+      const dbGroupId = String(found.group_id);
+      const { error } = await supabase.from("product_info").delete().eq("group_id", dbGroupId);
+      if (error) return res.status(500).json({ ok: false, error: error.message });
+      return res.json({ ok: true, deleted: true, matched_group_id: dbGroupId });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  }
+
   const isInsertOnly = options.insertOnly || body.mode === "insert_only" || body.source === "excel";
   let incomingProducts = [];
 

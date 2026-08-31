@@ -387,6 +387,7 @@ exports.handler = async (event) => {
       }
 
       const updatePayload = {
+        title: String(product.title || "").trim() || "Untitled product",
         description: String(product.description || ""),
         size_mentions: String(product.size_mentions || ""),
         sold_sizes: String(product.sold_sizes || ""),
@@ -400,6 +401,18 @@ exports.handler = async (event) => {
 
       if (Object.prototype.hasOwnProperty.call(product, "dress_description")) {
         updatePayload.dress_description = String(product.dress_description || "");
+      }
+      if (Object.prototype.hasOwnProperty.call(product, "tags")) {
+        updatePayload.tags = String(product.tags || "");
+      }
+      if (Object.prototype.hasOwnProperty.call(product, "permalink")) {
+        updatePayload.permalink = String(product.permalink || "");
+      }
+      if (Object.prototype.hasOwnProperty.call(product, "product_type")) {
+        updatePayload.product_type = String(product.product_type || "IMAGE");
+      }
+      if (Object.prototype.hasOwnProperty.call(product, "product_date")) {
+        updatePayload.product_date = safeIsoDate(product.product_date, null);
       }
       if (!Number.isFinite(updatePayload.item_count)) return json(400, { ok: false, error: "Item count must be a valid number." });
       if (!Number.isFinite(updatePayload.price)) return json(400, { ok: false, error: "Price must be a valid number." });
@@ -472,6 +485,64 @@ exports.handler = async (event) => {
       } catch (error) {
         console.error("Unexpected product update error:", error);
         return json(500, { ok: false, error: error instanceof Error ? error.message : "Unexpected database update error." });
+      }
+    }
+
+    if (body.mode === "delete") {
+      const groupId = String(body.group_id || "").trim();
+      if (!groupId) {
+        return json(400, { ok: false, error: "A group_id is required to delete a product." });
+      }
+
+      try {
+        const { data: candidateRows, error: lookupError } = await supabase
+          .from(TABLE_NAME)
+          .select("group_id")
+          .limit(5000);
+
+        if (lookupError) {
+          return json(500, {
+            ok: false,
+            error: lookupError.message,
+            details: lookupError.details || null,
+            hint: lookupError.hint || null,
+            code: lookupError.code || null
+          });
+        }
+
+        const normalizedRequestedId = groupId.trim().toLowerCase();
+        const matchingRow = (candidateRows || []).find((row) =>
+          String(row.group_id ?? "").trim().toLowerCase() === normalizedRequestedId
+        );
+
+        if (!matchingRow) {
+          return json(404, { ok: false, error: `No product found for group_id \"${groupId}\".` });
+        }
+
+        const databaseGroupId = String(matchingRow.group_id);
+        const { error: deleteError } = await supabase
+          .from(TABLE_NAME)
+          .delete()
+          .eq("group_id", databaseGroupId);
+
+        if (deleteError) {
+          return json(500, {
+            ok: false,
+            error: deleteError.message,
+            details: deleteError.details || null,
+            hint: deleteError.hint || null,
+            code: deleteError.code || null
+          });
+        }
+
+        return json(200, {
+          ok: true,
+          deleted: true,
+          matched_group_id: databaseGroupId,
+          message: "Product deleted successfully."
+        });
+      } catch (error) {
+        return json(500, { ok: false, error: error instanceof Error ? error.message : "Unexpected database delete error." });
       }
     }
 

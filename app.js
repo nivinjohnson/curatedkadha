@@ -810,25 +810,15 @@ async function loadCatalog(options = {}) {
     const apiRes = await fetch(apiRequestUrl, { cache: forceReload ? "no-store" : "default" });
     if (apiRes.ok) {
       const result = await apiRes.json();
-      if (result.ok && Array.isArray(result.products) && result.products.length > 0) {
+      if (result.ok && Array.isArray(result.products)) {
         return result.products.map(normalizeCatalogProduct);
       }
+      throw new Error(result && result.error ? String(result.error) : "Catalog API returned an invalid payload.");
     }
+    throw new Error(`HTTP ${apiRes.status} while fetching catalog API.`);
   } catch (err) {
-    console.warn("Catalog API fetch failed, falling back to local file:", err);
+    throw new Error(`Catalog API fetch failed: ${err instanceof Error ? err.message : String(err)}`);
   }
-
-  // Fallback to local Excel catalog file
-  const requestUrl = forceReload
-    ? `${CATALOG_URL}${CATALOG_URL.includes("?") ? "&" : "?"}v=${Date.now()}`
-    : CATALOG_URL;
-  const response = await fetch(requestUrl, { cache: forceReload ? "no-store" : "default" });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} while fetching ${CATALOG_URL}`);
-  }
-
-  const buffer = await response.arrayBuffer();
-  return parseExcelBufferToCatalog(buffer);
 }
 
 function parseExcelBufferToCatalog(buffer) {
@@ -1045,6 +1035,64 @@ async function saveCatalogToServer(products) {
     throw new Error(`Catalog update failed: ${response.status} ${errorText}`);
   }
   return response.json();
+}
+
+async function updateProductInDatabase(groupId, productPatch) {
+  const response = await fetch(CATALOG_API_URL, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      mode: "update",
+      group_id: groupId,
+      product: {
+        ...productPatch,
+        image_files: Array.isArray(productPatch.image_files)
+          ? productPatch.image_files
+          : parseImageFiles(productPatch.image_files)
+      }
+    })
+  });
+
+  let result = null;
+  try {
+    result = await response.json();
+  } catch {
+    result = null;
+  }
+
+  if (!response.ok || !result || result.ok === false) {
+    const err = (result && result.error) ? result.error : `HTTP ${response.status}`;
+    throw new Error(String(err));
+  }
+  return result;
+}
+
+async function deleteProductFromDatabase(groupId) {
+  const response = await fetch(CATALOG_API_URL, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      mode: "delete",
+      group_id: groupId
+    })
+  });
+
+  let result = null;
+  try {
+    result = await response.json();
+  } catch {
+    result = null;
+  }
+
+  if (!response.ok || !result || result.ok === false) {
+    const err = (result && result.error) ? result.error : `HTTP ${response.status}`;
+    throw new Error(String(err));
+  }
+  return result;
 }
 
 async function reloadCatalogFromFile(button, messageNode) {
@@ -3796,7 +3844,10 @@ function renderStockEditor(filteredRows) {
         <p>Sold sizes from parser: ${escapeHtml(parsed.soldSizes || "")}</p>
 
         <div class="field" style="margin-top: 1rem;">
-          <button id="saveStockBtn" style="width: 100%; min-height: 46px; font-size: 1rem;">Update product</button>
+          <button id="saveStockBtn" style="width: 100%; min-height: 46px; font-size: 1rem;">Update in DB</button>
+        </div>
+        <div class="field" style="margin-top: 0.65rem;">
+          <button id="deleteStockBtn" class="danger" style="width: 100%; min-height: 44px; font-size: 0.95rem;">Delete from DB</button>
         </div>
         <div id="stockSaveMessage"></div>
       </div>
@@ -3842,10 +3893,10 @@ function renderStockEditor(filteredRows) {
     const previousProducts = state.products;
     const updatedProducts = state.products.map((item) => item.group_id === current.group_id ? { ...item, ...patch } : item);
     saveButton.disabled = true;
-    saveButton.textContent = "Updating Excel...";
-    messageNode.innerHTML = '<p class="notice">Updating product_info/product_catalog.xlsx...</p>';
+    saveButton.textContent = "Updating DB...";
+    messageNode.innerHTML = '<p class="notice">Updating product in database...</p>';
     try {
-      await saveCatalogToServer(updatedProducts);
+      await updateProductInDatabase(current.group_id, patch);
       state.products = updatedProducts.map(normalizeCatalogProduct);
       state.stockEdits = {};
       localStorage.removeItem(EDITS_KEY);
@@ -3853,15 +3904,51 @@ function renderStockEditor(filteredRows) {
       renderStock();
       const refreshedMessage = document.getElementById("stockSaveMessage");
       if (refreshedMessage) {
-        refreshedMessage.innerHTML = '<p class="notice">Product updated successfully in product_info/product_catalog.xlsx.</p>';
+        refreshedMessage.innerHTML = '<p class="notice">Product updated successfully in database.</p>';
       }
     } catch (error) {
       state.products = previousProducts;
       saveButton.disabled = false;
-      saveButton.textContent = "Update product";
-      messageNode.innerHTML = `<p class="notice error">Could not update the Excel file: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+      saveButton.textContent = "Update in DB";
+      messageNode.innerHTML = `<p class="notice error">Could not update product in database: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
     }
   });
+
+  const deleteButton = document.getElementById("deleteStockBtn");
+  if (deleteButton) {
+    deleteButton.addEventListener("click", async () => {
+      const messageNode = document.getElementById("stockSaveMessage");
+      const confirmed = window.confirm(`Delete product ${current.group_id} from database? This cannot be undone.`);
+      if (!confirmed) return;
+
+      deleteButton.disabled = true;
+      deleteButton.textContent = "Deleting...";
+      if (messageNode) {
+        messageNode.innerHTML = '<p class="notice">Deleting product from database...</p>';
+      }
+
+      try {
+        await deleteProductFromDatabase(current.group_id);
+        state.products = state.products.filter((item) => item.group_id !== current.group_id);
+        if (state.selectedStockGroupId === current.group_id) {
+          state.selectedStockGroupId = state.products[0] ? state.products[0].group_id : "";
+        }
+        saveCatalogCache(state.products);
+        renderStock();
+        const refreshedMessage = document.getElementById("stockSyncMessage");
+        if (refreshedMessage) {
+          state.stockSyncStatusHtml = `<p class="notice">Deleted product ${escapeHtml(current.group_id)} from database.</p>`;
+          refreshedMessage.innerHTML = state.stockSyncStatusHtml;
+        }
+      } catch (error) {
+        deleteButton.disabled = false;
+        deleteButton.textContent = "Delete from DB";
+        if (messageNode) {
+          messageNode.innerHTML = `<p class="notice error">Could not delete product from database: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+        }
+      }
+    });
+  }
 }
 
 function imageUrl(fileName) {

@@ -229,6 +229,51 @@ function loadLocalExcelCatalog() {
   });
 }
 
+function resolveInstagramSourcePath(requestedPath = "") {
+  const explicit = String(requestedPath || process.env.INSTAGRAM_SOURCE_FILE || "").trim();
+  const defaultFileName = "instagram_media_curatedkadha_20260822_043644.xlsx";
+
+  const candidateDirectories = [
+    path.join(process.cwd(), "data_from_insta"),
+    path.join(process.cwd(), "static", "data_from_insta"),
+    path.join(__dirname, "..", "..", "data_from_insta"),
+    path.join(__dirname, "..", "..", "static", "data_from_insta")
+  ];
+
+  if (explicit) {
+    const explicitPath = path.isAbsolute(explicit) ? explicit : path.join(process.cwd(), explicit);
+    if (fs.existsSync(explicitPath)) {
+      return explicitPath;
+    }
+  }
+
+  for (const dir of candidateDirectories) {
+    const defaultPath = path.join(dir, defaultFileName);
+    if (fs.existsSync(defaultPath)) {
+      return defaultPath;
+    }
+  }
+
+  for (const dir of candidateDirectories) {
+    if (!fs.existsSync(dir)) continue;
+    const xlsxFiles = fs
+      .readdirSync(dir)
+      .filter((name) => /\.xlsx$/i.test(name) && /^instagram_media_curatedkadha_/i.test(name))
+      .map((name) => {
+        const fullPath = path.join(dir, name);
+        const stat = fs.statSync(fullPath);
+        return { fullPath, mtimeMs: stat.mtimeMs || 0 };
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    if (xlsxFiles.length > 0) {
+      return xlsxFiles[0].fullPath;
+    }
+  }
+
+  return "";
+}
+
 function sanitizeInsertProduct(product) {
   const clean = {
     ...product,
@@ -424,8 +469,13 @@ exports.handler = async (event) => {
     if (body.source === "excel" || body.source === "catalog") {
       incomingProducts = loadLocalExcelCatalog();
     } else if (body.source === "instagram") {
-      const instaPath = path.join(process.cwd(), "data_from_insta/instagram_media_curatedkadha_20260822_043644.xlsx");
-      if (!fs.existsSync(instaPath)) return json(404, { ok: false, error: `Instagram source file not found at ${instaPath}` });
+      const instaPath = resolveInstagramSourcePath(body.sourceFile);
+      if (!instaPath) {
+        return json(404, {
+          ok: false,
+          error: "Instagram source file not found. Place an xlsx file under data_from_insta/ (or static/data_from_insta/) and include it in Netlify functions bundle via netlify.toml [functions].included_files, or set INSTAGRAM_SOURCE_FILE."
+        });
+      }
       const workbook = XLSX.readFile(instaPath);
       const firstSheet = workbook.SheetNames[0];
       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: "" });

@@ -114,6 +114,7 @@ const app = document.getElementById("app");
 let shopLoadObserver = null;
 let pendingHomeSectionId = "";
 let pendingHomeSectionAttempts = 0;
+let stockTitleSearchTimer = null;
 installWideScreenBannerStyles();
 
 start();
@@ -984,6 +985,9 @@ async function syncInstagramDataToDatabase(options = {}) {
 
   if (!response.ok || !result || result.ok === false) {
     const err = (result && result.error) ? result.error : `HTTP ${response.status}`;
+    if (/source file not found/i.test(String(err))) {
+      throw new Error("Instagram source file not found. Ensure data_from_insta/instagram_media_curatedkadha_20260822_043644.xlsx exists, or update the server source filename.");
+    }
     throw new Error(err);
   }
 
@@ -3603,6 +3607,33 @@ function wireStockFilter(selector, field) {
   if (!node) {
     return;
   }
+
+  if (field === "titleQuery" && node.tagName === "INPUT") {
+    const runTitleSearch = () => {
+      state.stockFilters[field] = node.value;
+      renderStock();
+    };
+
+    node.addEventListener("input", () => {
+      if (stockTitleSearchTimer) {
+        clearTimeout(stockTitleSearchTimer);
+      }
+      stockTitleSearchTimer = setTimeout(() => {
+        stockTitleSearchTimer = null;
+        runTitleSearch();
+      }, 2000);
+    });
+
+    node.addEventListener("change", () => {
+      if (stockTitleSearchTimer) {
+        clearTimeout(stockTitleSearchTimer);
+        stockTitleSearchTimer = null;
+      }
+      runTitleSearch();
+    });
+    return;
+  }
+
   const handler = () => {
     state.stockFilters[field] = node.value;
     renderStock();

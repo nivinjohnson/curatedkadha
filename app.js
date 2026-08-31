@@ -95,7 +95,8 @@ const state = {
   stockFilters: {
     stockState: "all",
     activeState: "all",
-    size: "all"
+    size: "all",
+    titleQuery: ""
   },
   stockTab: "products",
   stockSyncStatusHtml: "",
@@ -2996,6 +2997,37 @@ function renderStock() {
     });
   }
 
+  const stockSyncExcelBtn = document.getElementById("stockSyncExcelBtn");
+  if (stockSyncExcelBtn) {
+    stockSyncExcelBtn.addEventListener("click", async () => {
+      const messageNode = document.getElementById("stockSyncMessage");
+      stockSyncExcelBtn.disabled = true;
+      state.stockSyncStatusHtml = '<p class="notice">Reading data_from_insta and updating DB...</p>';
+      if (messageNode) {
+        messageNode.innerHTML = state.stockSyncStatusHtml;
+      }
+
+      try {
+        const result = await syncInstagramDataToDatabase({ insertOnly: false });
+        const defaultStatus = result.insertedCount > 0
+          ? `${result.insertedCount} records processed.`
+          : "No product changes were detected.";
+        state.stockSyncStatusHtml = `<p class="notice">✓ Updated DB from Instagram source. ${escapeHtml(result.note || defaultStatus)}</p>`;
+      } catch (error) {
+        state.stockSyncStatusHtml = `<p class="notice error">Instagram update failed: ${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
+      } finally {
+        stockSyncExcelBtn.disabled = false;
+        renderStock();
+      }
+    });
+  }
+
+  document.getElementById("stockLogoutBtn").addEventListener("click", () => {
+    state.stockSyncStatusHtml = "";
+    clearStockSession();
+    renderStock();
+  });
+
   if (state.stockTab === "orders") {
     renderOrdersTab();
     return;
@@ -3035,6 +3067,9 @@ function renderProductsTab(filtered) {
           <option value="all" ${state.stockFilters.size === "all" ? "selected" : ""}>All sizes</option>
           ${SIZE_ORDER.map((size) => `<option value="${size}" ${state.stockFilters.size === size ? "selected" : ""}>${formatSizeLabel(size)}</option>`).join("")}
         </select>
+      </div>
+      <div class="field"><label for="sfTitle">Product title</label>
+        <input id="sfTitle" type="text" value="${escapeHtml(state.stockFilters.titleQuery || "")}" placeholder="Search by title" />
       </div>
     </article>
 
@@ -3083,6 +3118,7 @@ function renderProductsTab(filtered) {
   wireStockFilter("#sfStock", "stockState");
   wireStockFilter("#sfActive", "activeState");
   wireStockFilter("#sfSize", "size");
+  wireStockFilter("#sfTitle", "titleQuery");
 
   renderStockTable(filtered);
   renderStockEditor(filtered);
@@ -3468,6 +3504,9 @@ function renderProductsTab(filtered) {
           ${SIZE_ORDER.map((size) => `<option value="${size}" ${state.stockFilters.size === size ? "selected" : ""}>${formatSizeLabel(size)}</option>`).join("")}
         </select>
       </div>
+      <div class="field"><label for="sfTitle">Product title</label>
+        <input id="sfTitle" type="text" value="${escapeHtml(state.stockFilters.titleQuery || "")}" placeholder="Search by title" />
+      </div>
     </article>
 
     <article class="panel">
@@ -3481,6 +3520,7 @@ function renderProductsTab(filtered) {
   wireStockFilter("#sfStock", "stockState");
   wireStockFilter("#sfActive", "activeState");
   wireStockFilter("#sfSize", "size");
+  wireStockFilter("#sfTitle", "titleQuery");
 
   if (!state.selectedStockGroupId && filtered.length > 0) {
     state.selectedStockGroupId = filtered[0].group_id;
@@ -3591,6 +3631,7 @@ function buildStockOverview() {
 function filterStockRows() {
   let rows = [...state.products];
   const size = String(state.stockFilters.size || "all").toUpperCase();
+  const titleQuery = String(state.stockFilters.titleQuery || "").trim().toLowerCase();
 
   if (state.stockFilters.stockState === "available") {
     rows = rows.filter((item) => !isProductSoldOut(item));
@@ -3608,6 +3649,10 @@ function filterStockRows() {
 
   if (size !== "ALL") {
     rows = rows.filter((item) => splitSizes(item.size_mentions).includes(size));
+  }
+
+  if (titleQuery) {
+    rows = rows.filter((item) => String(item.title || "").toLowerCase().includes(titleQuery));
   }
 
   return rows;

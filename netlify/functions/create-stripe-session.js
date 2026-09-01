@@ -4,26 +4,8 @@ const { createClient } = require("@supabase/supabase-js");
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
-function decodeJwtPayload(token) {
-  try {
-    const parts = String(token || "").split(".");
-    if (parts.length < 2) return null;
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function isServiceRoleKey(key) {
-  const payload = decodeJwtPayload(key);
-  return Boolean(payload && payload.role === "service_role");
-}
-
 function getSupabaseClient() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
-  if (!isServiceRoleKey(SUPABASE_SERVICE_ROLE_KEY)) return null;
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 }
 
@@ -40,6 +22,63 @@ function json(statusCode, body) {
   };
 }
 
+function toBase64Utf8(value) {
+  return Buffer.from(String(value || ""), "utf8").toString("base64");
+}
+
+function buildWebhookOrderMetadata(orderPayload) {
+  const safePayload = orderPayload && typeof orderPayload === "object" ? orderPayload : {};
+  const compactItems = Array.isArray(safePayload.items)
+    ? safePayload.items.map((item) => ({
+      group_id: String(item.group_id || ""),
+      title: String(item.title || "Item"),
+      size: String(item.size || ""),
+      qty: Number(item.qty || 1),
+      price: Number(item.price || 0),
+      line_total: Number(item.line_total || 0),
+      image_url: String(item.image_url || "")
+    }))
+    : [];
+
+  const compactPayload = {
+    order_id: String(safePayload.order_id || ""),
+    created_utc: safePayload.created_utc || new Date().toISOString(),
+    customer_name: String(safePayload.customer_name || ""),
+    customer_email: String(safePayload.customer_email || ""),
+    customer_phone: String(safePayload.customer_phone || ""),
+    address: String(safePayload.address || ""),
+    items_total: Number(safePayload.items_total || safePayload.total || 0),
+    shipping_method: String(safePayload.shipping_method || "Standard Shipping"),
+    shipping_cost: Number(safePayload.shipping_cost || 0),
+    total: Number(safePayload.total || 0),
+    items: compactItems
+  };
+
+  const encoded = toBase64Utf8(JSON.stringify(compactPayload));
+  const chunkSize = 450;
+  const chunks = [];
+  for (let i = 0; i < encoded.length; i += chunkSize) {
+    chunks.push(encoded.slice(i, i + chunkSize));
+  }
+
+  const metadata = {
+    order_id: String(compactPayload.order_id || "")
+  };
+
+  if (chunks.length > 40) {
+    return {
+      order_id: String(compactPayload.order_id || "")
+    };
+  }
+
+  metadata.order_payload_chunk_count = String(chunks.length);
+  chunks.forEach((chunk, index) => {
+    metadata[`order_payload_chunk_${index + 1}`] = chunk;
+  });
+
+  return metadata;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return json(200, {});
@@ -51,13 +90,6 @@ exports.handler = async (event) => {
 
   if (!process.env.STRIPE_SECRET_KEY) {
     return json(500, { ok: false, error: "Stripe API key is not configured in environment variables (STRIPE_SECRET_KEY missing)." });
-  }
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !isServiceRoleKey(SUPABASE_SERVICE_ROLE_KEY)) {
-    return json(500, {
-      ok: false,
-      error: "Supabase service role configuration is invalid. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (service_role key)."
-    });
   }
 
   let payload;
@@ -113,42 +145,32 @@ exports.handler = async (event) => {
       customer_email: customer_email || undefined,
       success_url: `${origin}/#/shop?session_id={CHECKOUT_SESSION_ID}&order_success=1`,
       cancel_url: `${origin}/#/cart`,
-      metadata: {
-        order_id: String(order_payload?.order_id || ""),
-        customer_name: String(order_payload?.customer_name || ""),
-        customer_phone: String(order_payload?.customer_phone || "")
-      }
+      metadata: buildWebhookOrderMetadata(order_payload)
     });
 
     const supabase = getSupabaseClient();
-    if (!supabase) {
-      return json(500, {
-        ok: false,
-        error: "Supabase service client unavailable. Cannot create Stripe session safely."
-      });
-    }
+    if (supabase) {
+      const { error: orderInsertError } = await supabase.from("orders").insert([{
+        order_id: String(order_payload?.order_id || ""),
+        customer_name: String(order_payload?.customer_name || ""),
+        customer_email: String(customer_email || ""),
+        customer_phone: String(order_payload?.customer_phone || ""),
+        address: String(order_payload?.address || ""),
+        items: Array.isArray(order_payload?.items) ? order_payload.items : [],
+        items_total: Number(order_payload?.items_total || order_payload?.total || 0),
+        shipping_method: String(order_payload?.shipping_method || "Standard Shipping"),
+        shipping_cost: Number(order_payload?.shipping_cost || shipping_cost || 0),
+        total: Number(order_payload?.total || 0),
+        status: "pending_payment",
+        created_at: order_payload?.created_utc || new Date().toISOString()
+      }]);
 
-    const { error: orderInsertError } = await supabase.from("orders").insert([{
-      order_id: String(order_payload?.order_id || ""),
-      customer_name: String(order_payload?.customer_name || ""),
-      customer_email: String(customer_email || ""),
-      customer_phone: String(order_payload?.customer_phone || ""),
-      address: String(order_payload?.address || ""),
-      items: Array.isArray(order_payload?.items) ? order_payload.items : [],
-      items_total: Number(order_payload?.items_total || order_payload?.total || 0),
-      shipping_method: String(order_payload?.shipping_method || "Standard Shipping"),
-      shipping_cost: Number(order_payload?.shipping_cost || shipping_cost || 0),
-      total: Number(order_payload?.total || 0),
-      status: "pending_payment",
-      created_at: order_payload?.created_utc || new Date().toISOString()
-    }]);
-
-    if (orderInsertError) {
-      if (String(orderInsertError.code || "") === "23505") {
-        return json(409, { ok: false, error: "Duplicate order ID. Please place the order again." });
+      if (orderInsertError) {
+        if (String(orderInsertError.code || "") === "23505") {
+          return json(409, { ok: false, error: "Duplicate order ID. Please place the order again." });
+        }
+        console.error("Failed to persist pending order before Stripe redirect:", orderInsertError);
       }
-      console.error("Failed to persist pending order before Stripe redirect:", orderInsertError);
-      return json(500, { ok: false, error: "Could not save pending order. Please try again." });
     }
 
     return json(200, { ok: true, url: session.url, sessionId: session.id });

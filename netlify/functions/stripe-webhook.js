@@ -56,6 +56,60 @@ function buildOrderEmailPayloadFromRecord(order) {
   };
 }
 
+function fromBase64Utf8(value) {
+  try {
+    return Buffer.from(String(value || ""), "base64").toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function decodeOrderPayloadFromSessionMetadata(session) {
+  const metadata = session && session.metadata ? session.metadata : {};
+  const count = Number(metadata.order_payload_chunk_count || 0);
+  if (!count || count < 1) return null;
+
+  let base64 = "";
+  for (let i = 1; i <= count; i += 1) {
+    base64 += String(metadata[`order_payload_chunk_${i}`] || "");
+  }
+
+  if (!base64) return null;
+
+  try {
+    const parsed = JSON.parse(fromBase64Utf8(base64));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildOrderEmailPayloadFromSession(checkoutSession) {
+  const decoded = decodeOrderPayloadFromSessionMetadata(checkoutSession);
+  if (!decoded) return null;
+
+  const fallbackEmail = String(
+    (checkoutSession && checkoutSession.customer_details && checkoutSession.customer_details.email)
+      || checkoutSession.customer_email
+      || ""
+  ).trim();
+
+  return {
+    order_id: String(decoded.order_id || (checkoutSession && checkoutSession.id) || "").trim(),
+    created_utc: decoded.created_utc || new Date().toISOString(),
+    customer_name: String(decoded.customer_name || ""),
+    customer_email: String(decoded.customer_email || fallbackEmail),
+    customer_phone: String(decoded.customer_phone || ""),
+    address: String(decoded.address || ""),
+    items_total: Number(decoded.items_total || decoded.total || 0),
+    shipping_method: String(decoded.shipping_method || "Standard Shipping"),
+    shipping_cost: Number(decoded.shipping_cost || 0),
+    total: Number(decoded.total || 0),
+    items: Array.isArray(decoded.items) ? decoded.items : [],
+    skip_db_updates: true
+  };
+}
+
 async function applyStockAdjustments(supabase, items) {
   const soldOutWarnings = [];
   const itemsList = Array.isArray(items) ? items : [];
@@ -151,60 +205,92 @@ exports.handler = async (event) => {
   }
 
   const orderId = String((checkoutSession.metadata && checkoutSession.metadata.order_id) || "").trim();
-  if (!orderId) {
-    return json(200, { ok: true, ignored: true, reason: "Missing order_id metadata" });
-  }
-
   const supabase = getSupabaseClient();
-  if (!supabase) {
-    return json(500, {
-      ok: false,
-      error: "Supabase service client is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (service_role key)."
-    });
-  }
 
-  const { data: order, error: orderFetchError } = await supabase
-    .from("orders")
-    .select("order_id, customer_name, customer_email, customer_phone, address, items, items_total, shipping_method, shipping_cost, total, status, created_at")
-    .eq("order_id", orderId)
-    .single();
+  let order = null;
+  if (supabase && orderId) {
+    const { data: foundOrder } = await supabase
+      .from("orders")
+      .select("order_id, customer_name, customer_email, customer_phone, address, items, items_total, shipping_method, shipping_cost, total, status, created_at")
+      .eq("order_id", orderId)
+      .single();
 
-  if (orderFetchError || !order) {
-    console.error("Webhook could not find pending order:", orderFetchError);
-    return json(200, { ok: true, ignored: true, reason: "Pending order not found" });
-  }
-
-  const currentStatus = String(order.status || "").toLowerCase();
-  if (currentStatus === "completed" || currentStatus === "shipped") {
-    return json(200, { ok: true, order_id: orderId, already_processed: true });
+    if (foundOrder) {
+      order = foundOrder;
+      const currentStatus = String(order.status || "").toLowerCase();
+      if (currentStatus === "completed" || currentStatus === "shipped") {
+        return json(200, { ok: true, order_id: orderId, already_processed: true });
+      }
+    }
   }
 
   try {
-    await applyStockAdjustments(supabase, order.items || []);
+    const emailPayload = order
+      ? buildOrderEmailPayloadFromRecord(order)
+      : buildOrderEmailPayloadFromSession(checkoutSession);
 
-    const { error: statusUpdateError } = await supabase
-      .from("orders")
-      .update({ status: "completed" })
-      .eq("order_id", orderId);
-
-    if (statusUpdateError) {
-      throw statusUpdateError;
+    if (!emailPayload || !emailPayload.customer_email) {
+      return json(200, {
+        ok: true,
+        ignored: true,
+        reason: "Insufficient order data to send confirmation email"
+      });
     }
 
-    const emailPayload = buildOrderEmailPayloadFromRecord(order);
-    if (emailPayload && emailPayload.customer_email) {
-      const emailResponse = await sendOrderEmailHandler({
-        httpMethod: "POST",
-        body: JSON.stringify(emailPayload)
-      });
+    const emailResponse = await sendOrderEmailHandler({
+      httpMethod: "POST",
+      body: JSON.stringify(emailPayload)
+    });
 
-      if (!emailResponse || Number(emailResponse.statusCode || 500) >= 400) {
-        const text = emailResponse && emailResponse.body ? String(emailResponse.body) : "Unknown email error";
-        console.error("Webhook email send failed:", text);
+    if (!emailResponse || Number(emailResponse.statusCode || 500) >= 400) {
+      const text = emailResponse && emailResponse.body ? String(emailResponse.body) : "Unknown email error";
+      throw new Error(`Webhook email send failed: ${text}`);
+    }
+
+    if (!supabase) {
+      return json(200, {
+        ok: true,
+        order_id: emailPayload.order_id || orderId,
+        email_sent: true,
+        stock_updated: false,
+        warning: "Supabase service role is not configured; stock was not updated."
+      });
+    }
+
+    const itemsForStock = Array.isArray(emailPayload.items) ? emailPayload.items : [];
+    await applyStockAdjustments(supabase, itemsForStock);
+
+    if (order) {
+      const { error: statusUpdateError } = await supabase
+        .from("orders")
+        .update({ status: "completed" })
+        .eq("order_id", order.order_id);
+
+      if (statusUpdateError) {
+        throw statusUpdateError;
+      }
+    } else {
+      const { error: orderInsertError } = await supabase.from("orders").insert([{
+        order_id: String(emailPayload.order_id || orderId || checkoutSession.id || ""),
+        customer_name: String(emailPayload.customer_name || ""),
+        customer_email: String(emailPayload.customer_email || ""),
+        customer_phone: String(emailPayload.customer_phone || ""),
+        address: String(emailPayload.address || ""),
+        items: itemsForStock,
+        items_total: Number(emailPayload.items_total || emailPayload.total || 0),
+        shipping_method: String(emailPayload.shipping_method || "Standard Shipping"),
+        shipping_cost: Number(emailPayload.shipping_cost || 0),
+        total: Number(emailPayload.total || 0),
+        status: "completed",
+        created_at: emailPayload.created_utc || new Date().toISOString()
+      }]);
+
+      if (orderInsertError && String(orderInsertError.code || "") !== "23505") {
+        throw orderInsertError;
       }
     }
 
-    return json(200, { ok: true, order_id: orderId, finalized: true });
+    return json(200, { ok: true, order_id: emailPayload.order_id || orderId, finalized: true });
   } catch (err) {
     console.error("Stripe webhook fulfillment failed:", err);
     return json(500, { ok: false, error: err.message || "Webhook fulfillment failed" });

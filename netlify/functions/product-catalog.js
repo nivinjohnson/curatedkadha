@@ -126,6 +126,13 @@ function safeIsoDate(value, fallback = null) {
   return Number.isNaN(date.getTime()) ? fallback : date.toISOString();
 }
 
+function canonicalGroupId(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function normalizeInstagramRowsToCatalog(rows) {
   const groups = new Map();
   rows.forEach((row, index) => {
@@ -546,12 +553,12 @@ exports.handler = async (event) => {
       }
     }
 
+    const mode = String(body.mode || "").trim().toLowerCase();
     const isInsertOnly =
-      body.mode === "insert_only" ||
+      mode === "insert_only" ||
       body.source === "excel" ||
       body.source === "catalog" ||
-      body.source === "instagram" ||
-      event.httpMethod === "POST";
+      (event.httpMethod === "POST" && mode !== "upsert");
 
     let incomingProducts = [];
     if (body.source === "excel" || body.source === "catalog") {
@@ -581,14 +588,30 @@ exports.handler = async (event) => {
       if (isInsertOnly) {
         const { data: existingRows, error: fetchError } = await supabase.from(TABLE_NAME).select("group_id");
         if (fetchError) return json(500, { ok: false, error: fetchError.message });
-        const existingSet = new Set((existingRows || []).map((row) => String(row.group_id)));
-        const newProducts = incomingProducts.filter((product) => !existingSet.has(String(product.group_id)));
+        const existingSet = new Set((existingRows || []).map((row) => canonicalGroupId(row.group_id)).filter(Boolean));
+        const seenIncoming = new Set();
+        const dedupedIncoming = [];
+        let duplicateInputCount = 0;
+
+        incomingProducts.forEach((product) => {
+          const canonical = canonicalGroupId(product.group_id);
+          if (!canonical) return;
+          if (seenIncoming.has(canonical)) {
+            duplicateInputCount += 1;
+            return;
+          }
+          seenIncoming.add(canonical);
+          dedupedIncoming.push(product);
+        });
+
+        const newProducts = dedupedIncoming.filter((product) => !existingSet.has(canonicalGroupId(product.group_id)));
 
         if (newProducts.length === 0) {
           return json(200, {
             ok: true,
             insertedCount: 0,
-            skippedCount: incomingProducts.length,
+            skippedCount: dedupedIncoming.length,
+            duplicateInputCount,
             totalExisting: existingSet.size,
             products: [],
             message: "All products already exist in database. Existing products were preserved without modifications."
@@ -612,7 +635,7 @@ exports.handler = async (event) => {
 
         const insertedCount = insertedProducts.length;
         const failedCount = failedProducts.length;
-        const skippedCount = incomingProducts.length - newProducts.length;
+        const skippedCount = dedupedIncoming.length - newProducts.length;
         const partial = failedCount > 0;
 
         return json(partial ? 207 : 200, {
@@ -621,6 +644,7 @@ exports.handler = async (event) => {
           insertedCount,
           failedCount,
           skippedCount,
+          duplicateInputCount,
           totalExisting: existingSet.size,
           products: insertedProducts,
           failedProducts,
@@ -630,9 +654,37 @@ exports.handler = async (event) => {
         });
       }
 
+      const { data: existingRows, error: fetchError } = await supabase.from(TABLE_NAME).select("group_id");
+      if (fetchError) return json(500, { ok: false, error: fetchError.message });
+
+      const existingMap = new Map(
+        (existingRows || [])
+          .map((row) => [canonicalGroupId(row.group_id), String(row.group_id)])
+          .filter(([canonical]) => Boolean(canonical))
+      );
+
+      const seenIncoming = new Set();
+      const upsertProducts = [];
+      let duplicateInputCount = 0;
+
+      incomingProducts.forEach((product) => {
+        const canonical = canonicalGroupId(product.group_id);
+        if (!canonical) return;
+        if (seenIncoming.has(canonical)) {
+          duplicateInputCount += 1;
+          return;
+        }
+        seenIncoming.add(canonical);
+        const matchedExistingGroupId = existingMap.get(canonical);
+        upsertProducts.push({
+          ...product,
+          group_id: matchedExistingGroupId || String(product.group_id).trim()
+        });
+      });
+
       const syncedProducts = [];
       const failedProducts = [];
-      for (const product of incomingProducts) {
+      for (const product of upsertProducts) {
         const { data, error } = await supabase.from(TABLE_NAME).upsert([product], { onConflict: "group_id" }).select();
         if (error) {
           failedProducts.push(buildProductFailure(product, error));
@@ -655,6 +707,7 @@ exports.handler = async (event) => {
         count,
         insertedCount: count,
         failedCount,
+        duplicateInputCount,
         products: syncedProducts,
         failedProducts,
         message: partial

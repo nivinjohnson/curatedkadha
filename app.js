@@ -960,7 +960,7 @@ async function syncInstagramDataToDatabase(options = {}) {
   const method = insertOnly ? "POST" : "PUT";
   const payload = insertOnly
     ? { source: "instagram", mode: "insert_only" }
-    : { source: "instagram" };
+    : { source: "instagram", mode: "upsert" };
 
   const response = await fetch(CATALOG_API_URL, {
     method,
@@ -3107,6 +3107,10 @@ function renderStock() {
 
       try {
         const result = await syncInstagramDataToDatabase({ insertOnly: false });
+        state.products = await loadCatalog({ forceReload: true });
+        saveCatalogCache(state.products);
+        applyStockEdits();
+        updateCartCount();
         const defaultStatus = result.failedCount > 0
           ? `Partial update: ${result.insertedCount} succeeded, ${result.failedCount} failed${result.skippedCount > 0 ? `, ${result.skippedCount} skipped` : ""}.`
           : result.insertedCount > 0
@@ -3194,6 +3198,10 @@ function renderProductsTab(filtered) {
 
       try {
         const result = await syncInstagramDataToDatabase({ insertOnly: false });
+        state.products = await loadCatalog({ forceReload: true });
+        saveCatalogCache(state.products);
+        applyStockEdits();
+        updateCartCount();
         state.stockSyncStatusHtml = `<p class="notice">✓ Updated DB from Instagram source. ${escapeHtml(result.note || `${result.insertedCount} records processed.`)}</p>`;
         if (messageNode) {
           messageNode.innerHTML = state.stockSyncStatusHtml;

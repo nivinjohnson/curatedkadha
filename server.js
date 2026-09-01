@@ -19,6 +19,13 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
+function canonicalGroupId(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function getSupabaseClient() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return null;
@@ -628,62 +635,105 @@ async function handleCatalogSave(req, res, options = {}) {
     return res.status(400).json({ ok: false, error: "Invalid request payload. Provide 'products' array or 'source': 'excel'." });
   }
 
+  const normalizeAndDedupIncoming = (products) => {
+    const seen = new Set();
+    const deduped = [];
+    let duplicateInputCount = 0;
+
+    (products || []).forEach((product) => {
+      const trimmedGroupId = String(product.group_id || "").trim();
+      const canonical = canonicalGroupId(trimmedGroupId);
+      if (!canonical) return;
+      if (seen.has(canonical)) {
+        duplicateInputCount += 1;
+        return;
+      }
+      seen.add(canonical);
+      deduped.push({
+        ...product,
+        group_id: trimmedGroupId,
+        image_files: Array.isArray(product.image_files) ? product.image_files.join(";") : String(product.image_files || "")
+      });
+    });
+
+    return { deduped, duplicateInputCount };
+  };
+
+  const { deduped: dedupedIncoming, duplicateInputCount } = normalizeAndDedupIncoming(incomingProducts);
+
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
+      const { data: existingRows, error: fetchErr } = await supabase
+        .from("product_info")
+        .select("group_id");
+
+      if (fetchErr) {
+        return res.status(500).json({ ok: false, error: fetchErr.message });
+      }
+
+      const existingCanonicalMap = new Map(
+        (existingRows || [])
+          .map((row) => [canonicalGroupId(row.group_id), String(row.group_id)])
+          .filter(([canonical]) => Boolean(canonical))
+      );
+
       if (isInsertOnly) {
-        // Fetch existing group_ids from Supabase so we NEVER edit existing products
-        const { data: existingRows, error: fetchErr } = await supabase
-          .from("product_info")
-          .select("group_id");
+        const newProducts = dedupedIncoming.filter((product) => {
+          const canonical = canonicalGroupId(product.group_id);
+          return canonical && !existingCanonicalMap.has(canonical);
+        });
 
-        if (fetchErr) {
-          return res.status(500).json({ ok: false, error: fetchErr.message });
-        }
-
-        const existingSet = new Set((existingRows || []).map((r) => String(r.group_id)));
-        const newProducts = incomingProducts.filter((p) => !existingSet.has(String(p.group_id)));
-
-        if (newProducts.length > 0) {
-          const { data, error } = await supabase
-            .from("product_info")
-            .insert(newProducts)
-            .select();
-
-          if (error) {
-            return res.status(500).json({ ok: false, error: error.message });
-          }
-
-          return res.json({
-            ok: true,
-            insertedCount: newProducts.length,
-            skippedCount: incomingProducts.length - newProducts.length,
-            totalExisting: existingSet.size,
-            products: data,
-            message: `Inserted ${newProducts.length} new products. Preserved ${incomingProducts.length - newProducts.length} existing products without modifications.`
-          });
-        } else {
+        if (newProducts.length === 0) {
           return res.json({
             ok: true,
             insertedCount: 0,
-            skippedCount: incomingProducts.length,
-            totalExisting: existingSet.size,
+            skippedCount: dedupedIncoming.length,
+            duplicateInputCount,
+            totalExisting: existingCanonicalMap.size,
             products: [],
             message: "All products already exist in database. Existing products were preserved without modifications."
           });
         }
-      } else {
-        // Explicit manual edit (PUT)
+
         const { data, error } = await supabase
           .from("product_info")
-          .upsert(incomingProducts, { onConflict: "group_id" })
+          .insert(newProducts)
           .select();
 
         if (error) {
           return res.status(500).json({ ok: false, error: error.message });
         }
-        return res.json({ ok: true, count: data.length, products: data });
+
+        return res.json({
+          ok: true,
+          insertedCount: newProducts.length,
+          skippedCount: dedupedIncoming.length - newProducts.length,
+          duplicateInputCount,
+          totalExisting: existingCanonicalMap.size,
+          products: data,
+          message: `Inserted ${newProducts.length} new products. Preserved ${dedupedIncoming.length - newProducts.length} existing products without modifications.`
+        });
       }
+
+      const upsertPayload = dedupedIncoming.map((product) => {
+        const canonical = canonicalGroupId(product.group_id);
+        const existingGroupId = existingCanonicalMap.get(canonical);
+        return {
+          ...product,
+          group_id: existingGroupId || product.group_id
+        };
+      });
+
+      const { data, error } = await supabase
+        .from("product_info")
+        .upsert(upsertPayload, { onConflict: "group_id" })
+        .select();
+
+      if (error) {
+        return res.status(500).json({ ok: false, error: error.message });
+      }
+      return res.json({ ok: true, count: data.length, duplicateInputCount, products: data });
     } catch (err) {
       return res.status(500).json({ ok: false, error: err.message });
     }
@@ -693,13 +743,14 @@ async function handleCatalogSave(req, res, options = {}) {
   try {
     const catalogPath = path.join(__dirname, "product_info", "product_catalog.xlsx");
     const currentLocal = loadLocalExcelCatalog();
-    const currentMap = new Map(currentLocal.map((p) => [String(p.group_id), p]));
+    const currentMap = new Map(currentLocal.map((p) => [canonicalGroupId(p.group_id), p]));
 
     if (isInsertOnly) {
       let newCount = 0;
-      incomingProducts.forEach((p) => {
-        if (!currentMap.has(String(p.group_id))) {
-          currentMap.set(String(p.group_id), p);
+      dedupedIncoming.forEach((p) => {
+        const canonical = canonicalGroupId(p.group_id);
+        if (!currentMap.has(canonical)) {
+          currentMap.set(canonical, p);
           newCount++;
         }
       });
@@ -712,27 +763,28 @@ async function handleCatalogSave(req, res, options = {}) {
       return res.json({
         ok: true,
         insertedCount: newCount,
-        skippedCount: incomingProducts.length - newCount,
+        skippedCount: dedupedIncoming.length - newCount,
+        duplicateInputCount,
         total: mergedList.length,
         note: `Preserved existing records. Added ${newCount} new products to local catalog.`
       });
-    } else {
-      incomingProducts.forEach((p) => {
-        currentMap.set(String(p.group_id), p);
-      });
-      const mergedList = Array.from(currentMap.values());
-      const outWorkbook = XLSX.utils.book_new();
-      const outSheet = XLSX.utils.json_to_sheet(mergedList);
-      XLSX.utils.book_append_sheet(outWorkbook, outSheet, "catalog");
-      XLSX.writeFile(outWorkbook, catalogPath);
-
-      return res.json({ ok: true, count: incomingProducts.length, note: "Saved to local catalog" });
     }
+
+    dedupedIncoming.forEach((p) => {
+      currentMap.set(canonicalGroupId(p.group_id), p);
+    });
+    const mergedList = Array.from(currentMap.values());
+    const outWorkbook = XLSX.utils.book_new();
+    const outSheet = XLSX.utils.json_to_sheet(mergedList);
+    XLSX.utils.book_append_sheet(outWorkbook, outSheet, "catalog");
+    XLSX.writeFile(outWorkbook, catalogPath);
+
+    return res.json({ ok: true, count: dedupedIncoming.length, duplicateInputCount, note: "Saved to local catalog" });
   } catch (excelErr) {
     console.warn("Could not save to local Excel file:", excelErr.message);
   }
 
-  return res.json({ ok: true, count: incomingProducts.length, products: incomingProducts, note: "Processed" });
+  return res.json({ ok: true, count: dedupedIncoming.length, duplicateInputCount, products: dedupedIncoming, note: "Processed" });
 }
 
 // POST /api/send-order-email

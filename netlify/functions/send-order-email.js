@@ -263,10 +263,20 @@ exports.handler = async (event) => {
     return json(400, { ok: false, error: "Invalid JSON body" });
   }
 
-  const requiredFields = ["order_id", "customer_name", "customer_email", "customer_phone", "address", "total", "items"];
+  const requiredFields = ["order_id", "customer_name", "customer_email", "total"];
   const missing = requiredFields.filter((field) => !(field in payload) || payload[field] === "" || payload[field] === null);
   if (missing.length > 0) {
     return json(400, { ok: false, error: `Missing fields: ${missing.join(", ")}` });
+  }
+
+  if (!Array.isArray(payload.items)) {
+    payload.items = [];
+  }
+  if (payload.customer_phone === undefined || payload.customer_phone === null) {
+    payload.customer_phone = "";
+  }
+  if (payload.address === undefined || payload.address === null) {
+    payload.address = "";
   }
 
   const emailType = String(payload.email_type || "order_confirmed").trim().toLowerCase();
@@ -389,7 +399,12 @@ exports.handler = async (event) => {
   }
 
   const lines = Array.isArray(payload.items)
-    ? payload.items.map((row) => `- ${row.title || "Item"} | qty ${Number(row.qty || 0)} | $${Number(row.line_total || 0).toFixed(2)}`)
+    ? payload.items.map((row) => {
+      const qty = Number(row.qty || 0);
+      const fallbackLineTotal = Number(row.price || 0) * qty;
+      const lineTotal = Number(row.line_total || fallbackLineTotal || 0);
+      return `- ${row.title || "Item"} | qty ${qty} | $${lineTotal.toFixed(2)}`;
+    })
     : [];
 
   const body = payload.body || (

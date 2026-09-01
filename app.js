@@ -1259,10 +1259,8 @@ function normalizeCatalogProduct(product) {
 }
 function isProductSoldOut(item) {
   if (!item || !boolFromCell(item.active, true)) return true;
-  if (boolFromCell(item.caption_has_sold, false)) return true;
-  if (Number(item.item_count) === 0) return true;
   const mentioned = splitSizes(item.size_mentions);
-  if (mentioned.length === 0) return false;
+  if (mentioned.length === 0) return Number(item.item_count) === 0;
   const sold = new Set(splitSizes(item.sold_sizes));
   return mentioned.every((size) => sold.has(size));
 }
@@ -2115,9 +2113,7 @@ function renderProductDetails(productId) {
   const availableSizes = sizes.filter((size) => !soldSizes.has(size));
   const soldSizesList = sizes.filter((size) => soldSizes.has(size));
   const availableSizeCount = availableSizes.length;
-  const fullySoldOut =
-    Boolean(product.caption_has_sold) ||
-    (sizes.length > 0 && availableSizeCount === 0);
+  const fullySoldOut = sizes.length > 0 ? availableSizeCount === 0 : Number(product.item_count) === 0;
   const description = String(product.dress_description || product.description || "").trim();
   const cleanTitle = String(product.title || "Untitled product")
     .replace(/^\s*sold\s*out\s*[❌✖✕x-]*\s*/i, "")

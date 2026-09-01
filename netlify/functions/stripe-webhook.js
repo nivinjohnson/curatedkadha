@@ -5,23 +5,6 @@ const { handler: sendOrderEmailHandler } = require("./send-order-email");
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
-function decodeJwtPayload(token) {
-  try {
-    const parts = String(token || "").split(".");
-    if (parts.length < 2) return null;
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function isServiceRoleKey(key) {
-  const payload = decodeJwtPayload(key);
-  return Boolean(payload && payload.role === "service_role");
-}
-
 function json(statusCode, body) {
   return {
     statusCode,
@@ -34,7 +17,6 @@ function json(statusCode, body) {
 
 function getSupabaseClient() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
-  if (!isServiceRoleKey(SUPABASE_SERVICE_ROLE_KEY)) return null;
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 }
 

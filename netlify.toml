@@ -21,3 +21,13 @@
   from = "/api/create-stripe-session"
   to = "/.netlify/functions/create-stripe-session"
   status = 200
+
+[[redirects]]
+  from = "/api/stripe-webhook"
+  to = "/.netlify/functions/stripe-webhook"
+  status = 200
+
+[[redirects]]
+  from = "/api/stripe-session-status"
+  to = "/.netlify/functions/stripe-session-status"
+  status = 200

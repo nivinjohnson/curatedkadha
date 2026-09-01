@@ -8,6 +8,8 @@ const SECURE_ORDER_API_URL = (window.CK_CONFIG && window.CK_CONFIG.secureOrderAp
   ? String(window.CK_CONFIG.secureOrderApiUrl).trim()
   : `${location.origin}/api/send-order-email`;
 const STRIPE_SESSION_API_URL = `${location.origin}/api/create-stripe-session`;
+const STRIPE_SESSION_STATUS_API_URL = `${location.origin}/api/stripe-session-status`;
+const FINALIZED_STRIPE_SESSIONS_KEY = "ck_finalized_stripe_sessions_v1";
 const FREE_SHIPPING_THRESHOLD = 120;
 const CATALOG_CACHE_KEY = "ck_catalog_cache_v1";
 const CART_KEY = "ck_cart";
@@ -106,6 +108,8 @@ const state = {
   shippingMethod: "normal",
   isCartModalOpen: false,
   orderSuccessMessage: "",
+  stripeFinalizeInFlight: false,
+  stripeFinalizeSessionId: "",
   visibleCount: 24,
   selectedProductId: "",
   selectedStockGroupId: ""
@@ -500,6 +504,7 @@ function renderRoute() {
   }
   if (path === "products" || path === "shop") {
     renderShop();
+    void finalizeStripeOrderFromReturn(raw, path);
     return;
   }
   if (path === "about") {
@@ -566,6 +571,75 @@ function loadJson(key, fallback) {
 
 function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function loadFinalizedStripeSessions() {
+  const loaded = loadJson(FINALIZED_STRIPE_SESSIONS_KEY, []);
+  return Array.isArray(loaded) ? loaded : [];
+}
+
+function isStripeSessionFinalized(sessionId) {
+  if (!sessionId) return false;
+  return loadFinalizedStripeSessions().includes(sessionId);
+}
+
+function markStripeSessionFinalized(sessionId) {
+  if (!sessionId) return;
+  const finalized = loadFinalizedStripeSessions();
+  if (!finalized.includes(sessionId)) {
+    finalized.push(sessionId);
+    saveJson(FINALIZED_STRIPE_SESSIONS_KEY, finalized.slice(-100));
+  }
+}
+
+function getRouteQuery(rawRoute) {
+  const query = String(rawRoute || "").split("?")[1] || "";
+  return new URLSearchParams(query);
+}
+
+function cleanupStripeReturnQuery(path) {
+  const targetPath = path === "products" ? "products" : "shop";
+  if (String(location.hash || "").includes("?")) {
+    history.replaceState(null, "", `#/${targetPath}`);
+  }
+}
+
+async function finalizeStripeOrderFromReturn(rawRoute, path) {
+  const params = getRouteQuery(rawRoute);
+  const sessionId = String(params.get("session_id") || "").trim();
+  const orderSuccess = String(params.get("order_success") || "").trim();
+
+  if (!sessionId || orderSuccess !== "1") return;
+
+  if (isStripeSessionFinalized(sessionId)) {
+    cleanupStripeReturnQuery(path);
+    return;
+  }
+
+  if (state.stripeFinalizeInFlight && state.stripeFinalizeSessionId === sessionId) return;
+
+  state.stripeFinalizeInFlight = true;
+  state.stripeFinalizeSessionId = sessionId;
+
+  try {
+    const res = await fetch(`${STRIPE_SESSION_STATUS_API_URL}?session_id=${encodeURIComponent(sessionId)}`);
+    const data = await res.json();
+    if (!res.ok || !data.ok || !data.paid) {
+      throw new Error(data.error || "Stripe payment is not confirmed yet.");
+    }
+
+    markStripeSessionFinalized(sessionId);
+    clearCart();
+    state.orderSuccessMessage = `Payment completed. Your order #${data.order_id || ""} is confirmed.`;
+    alert(state.orderSuccessMessage);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    alert(`Payment was successful, but order finalization failed: ${msg}`);
+  } finally {
+    state.stripeFinalizeInFlight = false;
+    state.stripeFinalizeSessionId = "";
+    cleanupStripeReturnQuery(path);
+  }
 }
 
 function loadCatalogCache() {
@@ -2874,24 +2948,6 @@ async function placeOrder(rows, itemsTotal) {
     };
   });
 
-  const lines = rows.map((row) => `- ${row.title}${row.size ? ` (Size: ${formatSizeLabel(row.size)})` : ""} | qty ${row.qty} | ${formatMoney(row.line_total)}`).join("%0D%0A");
-  const body = [
-    `Order ID: ${orderId}`,
-    `Customer: ${name}`,
-    `Customer email: ${email}`,
-    `Phone: ${phone}`,
-    `Address: ${address}`,
-    "",
-    "Items:",
-    lines,
-    "",
-    `Subtotal: ${formatMoney(itemsTotal)}`,
-    `Shipping (${shippingTitle}): ${formatMoney(shippingCost)}`,
-    `Grand total: ${formatMoney(grandTotal)}`
-  ].join("%0D%0A");
-
-  const plainBody = decodeURIComponent(body);
-
   try {
     const res = await fetch(STRIPE_SESSION_API_URL, {
       method: "POST",
@@ -2909,23 +2965,10 @@ async function placeOrder(rows, itemsTotal) {
       throw new Error(data.error || "Could not initiate Stripe checkout.");
     }
 
-    // Record order & send email before redirecting to Stripe
-    await sendOrderEmailSecure({
-      order_id: orderId,
-      created_utc: payload.created_utc,
-      customer_name: name,
-      customer_email: email,
-      customer_phone: phone,
-      address,
-      items_total: itemsTotal,
-      shipping_method: shippingTitle,
-      shipping_cost: shippingCost,
-      total: grandTotal,
-      items: emailItems,
-      body: plainBody
-    });
+    if (!data.sessionId) {
+      throw new Error("Stripe session ID missing from checkout response.");
+    }
 
-    clearCart();
     window.location.href = data.url;
     return;
   } catch (err) {

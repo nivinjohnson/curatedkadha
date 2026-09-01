@@ -4,6 +4,28 @@ const { createClient } = require("@supabase/supabase-js");
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
+async function isStripeSessionPaid(sessionId) {
+  if (!sessionId) {
+    return { ok: false, reason: "stripe_session_id is required" };
+  }
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return { ok: false, reason: "STRIPE_SECRET_KEY is missing" };
+  }
+  try {
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+    const session = await stripe.checkout.sessions.retrieve(String(sessionId));
+    if (!session) {
+      return { ok: false, reason: "Stripe session not found" };
+    }
+    if (session.payment_status !== "paid") {
+      return { ok: false, reason: `Stripe payment not completed (status: ${session.payment_status || "unknown"})` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err && err.message ? err.message : "Failed to verify Stripe payment" };
+  }
+}
+
 function getSupabaseClient() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -232,6 +254,15 @@ exports.handler = async (event) => {
 
   const emailType = String(payload.email_type || "order_confirmed").trim().toLowerCase();
   const isShippedEmail = emailType === "shipped";
+  const skipDbUpdates = Boolean(payload.skip_db_updates);
+  const stripeSessionId = String(payload.stripe_session_id || "").trim();
+
+  if (!isShippedEmail && !skipDbUpdates) {
+    const paymentCheck = await isStripeSessionPaid(stripeSessionId);
+    if (!paymentCheck.ok) {
+      return json(400, { ok: false, error: `Payment not completed. ${paymentCheck.reason}` });
+    }
+  }
 
   const smtpHost = process.env.ORDER_SMTP_HOST;
   const smtpPort = Number(process.env.ORDER_SMTP_PORT || 465);
@@ -247,6 +278,97 @@ exports.handler = async (event) => {
   const toEmail = String(payload.customer_email || "").trim();
   if (!toEmail || !toEmail.includes("@")) {
     return json(400, { ok: false, error: "customer_email must be a valid email address" });
+  }
+
+  const supabase = getSupabaseClient();
+  if (!isShippedEmail && !skipDbUpdates && supabase) {
+    const { data: existingOrder } = await supabase
+      .from("orders")
+      .select("order_id")
+      .eq("order_id", String(payload.order_id))
+      .limit(1);
+
+    if (Array.isArray(existingOrder) && existingOrder.length > 0) {
+      return json(200, { ok: true, order_id: payload.order_id, already_processed: true });
+    }
+  }
+
+  const soldOutWarnings = [];
+
+  if (!isShippedEmail && !skipDbUpdates && supabase) {
+    try {
+      const { error: insertError } = await supabase.from("orders").insert([{
+        order_id: String(payload.order_id),
+        customer_name: String(payload.customer_name),
+        customer_email: toEmail,
+        customer_phone: String(payload.customer_phone),
+        address: String(payload.address),
+        items: payload.items || [],
+        items_total: Number(payload.items_total || payload.total || 0),
+        shipping_method: String(payload.shipping_method || "Standard Shipping"),
+        shipping_cost: Number(payload.shipping_cost || 0),
+        total: Number(payload.total || 0),
+        status: "completed",
+        created_at: payload.created_utc || new Date().toISOString()
+      }]);
+
+      if (insertError) {
+        if (String(insertError.code || "") === "23505") {
+          return json(200, { ok: true, order_id: payload.order_id, already_processed: true });
+        }
+        throw insertError;
+      }
+
+      // Stock is adjusted only after payment is confirmed and the order insert succeeds.
+      const itemsList = Array.isArray(payload.items) ? payload.items : [];
+      for (const item of itemsList) {
+        const groupId = item.group_id;
+        const orderedQty = Number(item.qty || 1);
+        const orderedSize = String(item.size || "").trim().toUpperCase();
+
+        if (!groupId) continue;
+
+        const { data: currentProduct, error: fetchErr } = await supabase
+          .from("product_info")
+          .select("group_id, title, item_count, sold_sizes, caption_has_sold")
+          .eq("group_id", groupId)
+          .single();
+
+        if (fetchErr || !currentProduct) continue;
+
+        const newCount = Math.max(0, Number(currentProduct.item_count || 1) - orderedQty);
+        let currentSoldSizes = String(currentProduct.sold_sizes || "")
+          .split(";")
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        if (orderedSize && !currentSoldSizes.includes(orderedSize)) {
+          currentSoldSizes.push(orderedSize);
+        }
+
+        const isNowSoldOut = newCount === 0;
+        if (isNowSoldOut) {
+          soldOutWarnings.push({
+            title: currentProduct.title || item.title || groupId,
+            group_id: groupId,
+            size: orderedSize
+          });
+        }
+
+        await supabase
+          .from("product_info")
+          .update({
+            item_count: newCount,
+            sold_sizes: currentSoldSizes.join(";"),
+            caption_has_sold: isNowSoldOut ? true : currentProduct.caption_has_sold,
+            updated_at: new Date().toISOString()
+          })
+          .eq("group_id", groupId);
+      }
+    } catch (dbErr) {
+      console.error("Failed to update orders or inventory in Supabase:", dbErr);
+      return json(500, { ok: false, error: "Could not finalize order in database." });
+    }
   }
 
   const lines = Array.isArray(payload.items)
@@ -299,81 +421,6 @@ exports.handler = async (event) => {
     text: body,
     html: htmlBody
   };
-
-  // Save order to Supabase orders table and update product inventory
-  const supabase = getSupabaseClient();
-  const soldOutWarnings = [];
-
-  if (supabase && !isShippedEmail) {
-    try {
-      await supabase.from("orders").insert([{
-        order_id: String(payload.order_id),
-        customer_name: String(payload.customer_name),
-        customer_email: toEmail,
-        customer_phone: String(payload.customer_phone),
-        address: String(payload.address),
-        items: payload.items || [],
-        items_total: Number(payload.items_total || payload.total || 0),
-        shipping_method: String(payload.shipping_method || "Standard Shipping"),
-        shipping_cost: Number(payload.shipping_cost || 0),
-        total: Number(payload.total || 0),
-        status: "pending",
-        created_at: payload.created_utc || new Date().toISOString()
-      }]);
-
-      // Deduct item_count and update sold_sizes / caption_has_sold for ordered products
-      const itemsList = Array.isArray(payload.items) ? payload.items : [];
-      for (const item of itemsList) {
-        const groupId = item.group_id;
-        const orderedQty = Number(item.qty || 1);
-        const orderedSize = String(item.size || "").trim().toUpperCase();
-
-        if (!groupId) continue;
-
-        const { data: currentProduct, error: fetchErr } = await supabase
-          .from("product_info")
-          .select("group_id, title, item_count, sold_sizes, caption_has_sold")
-          .eq("group_id", groupId)
-          .single();
-
-        if (fetchErr || !currentProduct) continue;
-
-        const newCount = Math.max(0, Number(currentProduct.item_count || 1) - orderedQty);
-        let currentSoldSizes = String(currentProduct.sold_sizes || "")
-          .split(";")
-          .map((s) => s.trim())
-          .filter(Boolean);
-
-        if (orderedSize && !currentSoldSizes.includes(orderedSize)) {
-          currentSoldSizes.push(orderedSize);
-        }
-
-        const isNowSoldOut = newCount === 0;
-
-        if (isNowSoldOut) {
-          soldOutWarnings.push({
-            title: currentProduct.title || item.title || groupId,
-            group_id: groupId,
-            size: orderedSize
-          });
-        }
-
-        const updatePayload = {
-          item_count: newCount,
-          sold_sizes: currentSoldSizes.join(";"),
-          caption_has_sold: isNowSoldOut ? true : currentProduct.caption_has_sold,
-          updated_at: new Date().toISOString()
-        };
-
-        await supabase
-          .from("product_info")
-          .update(updatePayload)
-          .eq("group_id", groupId);
-      }
-    } catch (dbErr) {
-      console.error("Failed to update orders or inventory in Supabase:", dbErr);
-    }
-  }
 
   // Construct store owner notifications
   const storeOwnerEmail = process.env.ORDER_BCC_EMAIL || process.env.ORDER_SMTP_USER || smtpUser;

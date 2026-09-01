@@ -60,10 +60,31 @@ If relay is unavailable, checkout shows an error and does not place the order.
 
 This repository includes a Netlify Function at `netlify/functions/send-order-email.js` and a redirect in `netlify.toml`.
 
+Stripe checkout flow also uses:
+- `netlify/functions/create-stripe-session.js`
+- `netlify/functions/stripe-webhook.js`
+- `netlify/functions/stripe-session-status.js`
+
+Behavior in production:
+- Checkout payload is persisted server-side in Supabase `orders` with `status="pending_payment"` before redirect.
+- Order completion, stock update, and confirmation email are triggered by Stripe webhook only after payment is `paid`.
+- Frontend return URL checks session status through `/api/stripe-session-status` and clears cart after confirmed payment.
+
 Result:
 - Mail is sent from the address configured in `ORDER_FROM_EMAIL` (or `ORDER_SMTP_USER` if not set)
 - Mail is sent to the customer email entered in checkout
 - Curated Kadha receives a BCC copy (optional)
+
+Required Netlify environment variables for Stripe:
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+
+Webhook endpoint to register in Stripe Dashboard:
+- `https://<your-site-domain>/api/stripe-webhook`
+
+Required Stripe webhook events:
+- `checkout.session.completed`
+- `checkout.session.async_payment_succeeded`
 
 ### Netlify secrets scanning note
 

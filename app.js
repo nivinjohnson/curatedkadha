@@ -3056,6 +3056,7 @@ function buildOrderEmailPayloadFromRecord(order, extra = {}) {
     items_total: Number(order.items_total || order.total || 0),
     shipping_method: String(order.shipping_method || "Standard Shipping"),
     shipping_cost: Number(order.shipping_cost || 0),
+    shipping_id: String(order.shipping_id || extra.shipping_id || "").trim(),
     total: Number(order.total || 0),
     items: Array.isArray(order.items) ? order.items : [],
     ...extra
@@ -3460,7 +3461,7 @@ async function renderOrdersTab() {
             </div>
           </div>
 
-          <div class="order-card-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1rem; margin-bottom:1.1rem; background:#fbf9f6; padding:1rem; border-radius:9px; border:1px solid #efe8e0;">
+          <div class="order-card-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:1rem; margin-bottom:1.1rem; background:#fbf9f6; padding:1rem; border-radius:9px; border:1px solid #efe8e0;">
             <div>
               <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Customer Info</strong>
               <div style="font-weight:600; color:#2a2017; font-size:0.95rem;">👤 ${escapeHtml(order.customer_name)}</div>
@@ -3472,6 +3473,12 @@ async function renderOrdersTab() {
               <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Delivery Address</strong>
               <div style="font-size:0.88rem; color:#2a2017; line-height:1.45; word-break:break-word;">📍 ${escapeHtml(order.address)}</div>
               <div style="font-size:0.85rem; color:var(--brand); margin-top:0.5rem; font-weight:600;">🚚 ${escapeHtml(order.shipping_method || "Standard Shipping")} (${formatMoney(order.shipping_cost || 7)})</div>
+            </div>
+
+            <div>
+              <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Shipment Tracking</strong>
+              <label for="shippingIdInput-${escapeHtml(order.order_id)}" style="display:block; font-size:0.82rem; color:#4a3729; margin-bottom:0.3rem;">Shipping ID / Tracking No:</label>
+              <input type="text" id="shippingIdInput-${escapeHtml(order.order_id)}" class="shipping-id-input" data-order-id="${escapeHtml(order.order_id)}" value="${escapeHtml(order.shipping_id || "")}" placeholder="Enter Shipping ID" style="padding:0.4rem 0.65rem; font-size:0.85rem; border:1px solid #ccc; border-radius:6px; width:100%; box-sizing:border-box;" />
             </div>
           </div>
 
@@ -3502,6 +3509,19 @@ async function renderOrdersTab() {
     });
   });
 
+  document.querySelectorAll(".shipping-id-input").forEach((inputNode) => {
+    inputNode.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+    inputNode.addEventListener("change", (e) => {
+      const orderId = e.target.getAttribute("data-order-id");
+      const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
+      if (found) {
+        found.shipping_id = e.target.value.trim();
+      }
+    });
+  });
+
   document.querySelectorAll(".order-status-select").forEach((selectNode) => {
     selectNode.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -3509,6 +3529,9 @@ async function renderOrdersTab() {
     selectNode.addEventListener("change", async (e) => {
       const orderId = e.target.getAttribute("data-order-id");
       const newStatus = e.target.value;
+      const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
+      const shippingInput = document.getElementById(`shippingIdInput-${orderId}`);
+      const shippingId = shippingInput ? shippingInput.value.trim() : (found?.shipping_id || "");
 
       try {
         const res = await fetch(CATALOG_API_URL, {
@@ -3517,12 +3540,15 @@ async function renderOrdersTab() {
           body: JSON.stringify({
             mode: "update_order_status",
             order_id: orderId,
-            status: newStatus
+            status: newStatus,
+            shipping_id: shippingId
           })
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
-        if (found) found.status = newStatus;
+        if (found) {
+          found.status = newStatus;
+          found.shipping_id = shippingId;
+        }
 
         renderOrdersTab();
       } catch (err) {
@@ -3541,7 +3567,14 @@ async function renderOrdersTab() {
         return;
       }
 
-      const shippedPayload = buildOrderEmailPayloadFromRecord(found, { email_type: "shipped" });
+      const shippingInput = document.getElementById(`shippingIdInput-${orderId}`);
+      const shippingId = shippingInput ? shippingInput.value.trim() : String(found.shipping_id || "").trim();
+      found.shipping_id = shippingId;
+
+      const shippedPayload = buildOrderEmailPayloadFromRecord(found, {
+        email_type: "shipped",
+        shipping_id: shippingId
+      });
       if (!shippedPayload) {
         alert("Could not build shipped email payload.");
         return;
@@ -3551,8 +3584,19 @@ async function renderOrdersTab() {
       buttonNode.disabled = true;
       buttonNode.textContent = "Sending...";
       try {
+        fetch(CATALOG_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "update_order_status",
+            order_id: orderId,
+            status: found.status || "shipped",
+            shipping_id: shippingId
+          })
+        }).catch((err) => console.warn("Could not update shipping ID in database:", err));
+
         await sendOrderEmailSecure(shippedPayload);
-        alert(`Shipped email sent for order #${orderId}.`);
+        alert(`Shipped email sent for order #${orderId}.${shippingId ? ` (Shipping ID: ${shippingId})` : ""}`);
       } catch (mailErr) {
         alert(`Could not send shipped email: ${mailErr instanceof Error ? mailErr.message : String(mailErr)}`);
       } finally {

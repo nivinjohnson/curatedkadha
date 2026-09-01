@@ -366,15 +366,32 @@ exports.handler = async (event) => {
     if (body.mode === "update_order_status") {
       const orderId = String(body.order_id || "").trim();
       const status = String(body.status || "pending").trim();
+      const shippingId = body.shipping_id !== undefined ? String(body.shipping_id).trim() : null;
 
       if (!orderId) return json(400, { ok: false, error: "order_id is required." });
 
       try {
-        const { data, error } = await supabase
+        const updateData = { status };
+        if (shippingId !== null) {
+          updateData.shipping_id = shippingId;
+        }
+
+        let { data, error } = await supabase
           .from("orders")
-          .update({ status })
+          .update(updateData)
           .eq("order_id", orderId)
           .select();
+
+        if (error && shippingId !== null) {
+          // Fallback if shipping_id column does not exist yet in Supabase orders table
+          const fallback = await supabase
+            .from("orders")
+            .update({ status })
+            .eq("order_id", orderId)
+            .select();
+          data = fallback.data;
+          error = fallback.error;
+        }
 
         if (error) return json(500, { ok: false, error: error.message });
         return json(200, { ok: true, order: data?.[0] });

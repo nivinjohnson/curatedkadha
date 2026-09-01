@@ -47,10 +47,14 @@ CREATE TABLE IF NOT EXISTS public.orders (
   items_total NUMERIC(10,2) DEFAULT 0.00,
   shipping_method TEXT DEFAULT 'Standard Shipping',
   shipping_cost NUMERIC(10,2) DEFAULT 7.00,
+  shipping_id TEXT DEFAULT '',
   total NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   status TEXT DEFAULT 'pending',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration: Add shipping_id column if adding to an existing database
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS shipping_id TEXT DEFAULT '';
 
 -- Index for order queries
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON public.orders (created_at DESC);

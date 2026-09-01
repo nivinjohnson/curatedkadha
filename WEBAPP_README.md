@@ -66,8 +66,8 @@ Stripe checkout flow also uses:
 - `netlify/functions/stripe-session-status.js`
 
 Behavior in production:
-- Checkout payload is persisted server-side in Supabase `orders` with `status="pending_payment"` before redirect.
-- Order completion, stock update, and confirmation email are triggered by Stripe webhook only after payment is `paid`.
+- Checkout payload is persisted server-side in Supabase `orders` with `status="pending"` before redirect.
+- Stock update and confirmation email are triggered by Stripe webhook only after payment is `paid`, while order `status` remains `pending` for manual updates in the stock page.
 - Frontend return URL checks session status through `/api/stripe-session-status` and clears cart after confirmed payment.
 
 Result:

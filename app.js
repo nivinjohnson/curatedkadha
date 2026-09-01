@@ -3056,7 +3056,7 @@ function buildOrderEmailPayloadFromRecord(order, extra = {}) {
     items_total: Number(order.items_total || order.total || 0),
     shipping_method: String(order.shipping_method || "Standard Shipping"),
     shipping_cost: Number(order.shipping_cost || 0),
-    shipping_id: String(order.shipping_id || extra.shipping_id || "").trim(),
+    tracking_number: String(order.tracking_number || "").trim(),
     total: Number(order.total || 0),
     items: Array.isArray(order.items) ? order.items : [],
     ...extra
@@ -3430,6 +3430,7 @@ async function renderOrdersTab() {
       const status = String(order.status || "pending").toLowerCase();
       const isCompleted = status === "completed";
       const isShipped = status === "shipped";
+      const currentTrackingNumber = String(order.tracking_number || "").trim();
       const orderDate = new Date(order.created_at || order.created_utc || Date.now()).toLocaleString("en-NZ", {
         day: "numeric",
         month: "short",
@@ -3461,7 +3462,15 @@ async function renderOrdersTab() {
             </div>
           </div>
 
-          <div class="order-card-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:1rem; margin-bottom:1.1rem; background:#fbf9f6; padding:1rem; border-radius:9px; border:1px solid #efe8e0;">
+          <div style="display:flex; align-items:flex-end; gap:0.65rem; flex-wrap:wrap; margin-bottom:1rem; background:#f7fbf6; border:1px solid #e2ecdf; border-radius:10px; padding:0.85rem;">
+            <div style="flex:1; min-width:220px;">
+              <label for="trackingNumberInput" style="display:block; font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:#375033; margin-bottom:0.35rem;">Shipment Tracking Number</label>
+              <input id="trackingNumberInput" type="text" value="${escapeHtml(currentTrackingNumber)}" placeholder="e.g. NZP123456789" style="width:100%; min-height:40px; padding:0.5rem 0.6rem; border:1px solid #c8d9c2; border-radius:7px; font-size:0.9rem;" />
+            </div>
+            <button type="button" class="secondary save-tracking-btn" data-order-id="${escapeHtml(order.order_id)}" style="min-height:40px; padding:0.5rem 0.75rem; font-size:0.82rem;">Save Tracking</button>
+          </div>
+
+          <div class="order-card-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1rem; margin-bottom:1.1rem; background:#fbf9f6; padding:1rem; border-radius:9px; border:1px solid #efe8e0;">
             <div>
               <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Customer Info</strong>
               <div style="font-weight:600; color:#2a2017; font-size:0.95rem;">👤 ${escapeHtml(order.customer_name)}</div>
@@ -3473,12 +3482,6 @@ async function renderOrdersTab() {
               <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Delivery Address</strong>
               <div style="font-size:0.88rem; color:#2a2017; line-height:1.45; word-break:break-word;">📍 ${escapeHtml(order.address)}</div>
               <div style="font-size:0.85rem; color:var(--brand); margin-top:0.5rem; font-weight:600;">🚚 ${escapeHtml(order.shipping_method || "Standard Shipping")} (${formatMoney(order.shipping_cost || 7)})</div>
-            </div>
-
-            <div>
-              <strong style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.04em; color:#6e5440; display:block; margin-bottom:0.45rem;">Shipment Tracking</strong>
-              <label for="shippingIdInput-${escapeHtml(order.order_id)}" style="display:block; font-size:0.82rem; color:#4a3729; margin-bottom:0.3rem;">Shipping ID / Tracking No:</label>
-              <input type="text" id="shippingIdInput-${escapeHtml(order.order_id)}" class="shipping-id-input" data-order-id="${escapeHtml(order.order_id)}" value="${escapeHtml(order.shipping_id || "")}" placeholder="Enter Shipping ID" style="padding:0.4rem 0.65rem; font-size:0.85rem; border:1px solid #ccc; border-radius:6px; width:100%; box-sizing:border-box;" />
             </div>
           </div>
 
@@ -3509,19 +3512,6 @@ async function renderOrdersTab() {
     });
   });
 
-  document.querySelectorAll(".shipping-id-input").forEach((inputNode) => {
-    inputNode.addEventListener("click", (e) => {
-      e.stopPropagation();
-    });
-    inputNode.addEventListener("change", (e) => {
-      const orderId = e.target.getAttribute("data-order-id");
-      const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
-      if (found) {
-        found.shipping_id = e.target.value.trim();
-      }
-    });
-  });
-
   document.querySelectorAll(".order-status-select").forEach((selectNode) => {
     selectNode.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -3529,9 +3519,6 @@ async function renderOrdersTab() {
     selectNode.addEventListener("change", async (e) => {
       const orderId = e.target.getAttribute("data-order-id");
       const newStatus = e.target.value;
-      const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
-      const shippingInput = document.getElementById(`shippingIdInput-${orderId}`);
-      const shippingId = shippingInput ? shippingInput.value.trim() : (found?.shipping_id || "");
 
       try {
         const res = await fetch(CATALOG_API_URL, {
@@ -3540,15 +3527,12 @@ async function renderOrdersTab() {
           body: JSON.stringify({
             mode: "update_order_status",
             order_id: orderId,
-            status: newStatus,
-            shipping_id: shippingId
+            status: newStatus
           })
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        if (found) {
-          found.status = newStatus;
-          found.shipping_id = shippingId;
-        }
+        const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
+        if (found) found.status = newStatus;
 
         renderOrdersTab();
       } catch (err) {
@@ -3567,14 +3551,29 @@ async function renderOrdersTab() {
         return;
       }
 
-      const shippingInput = document.getElementById(`shippingIdInput-${orderId}`);
-      const shippingId = shippingInput ? shippingInput.value.trim() : String(found.shipping_id || "").trim();
-      found.shipping_id = shippingId;
+      const trackingInput = document.getElementById("trackingNumberInput");
+      const trackingNumber = trackingInput ? String(trackingInput.value || "").trim() : "";
 
-      const shippedPayload = buildOrderEmailPayloadFromRecord(found, {
-        email_type: "shipped",
-        shipping_id: shippingId
-      });
+      if (trackingNumber !== String(found.tracking_number || "").trim()) {
+        try {
+          const trackingRes = await fetch(CATALOG_API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mode: "update_order_tracking",
+              order_id: orderId,
+              tracking_number: trackingNumber
+            })
+          });
+          if (!trackingRes.ok) throw new Error(`HTTP ${trackingRes.status}`);
+          found.tracking_number = trackingNumber;
+        } catch (trackingErr) {
+          alert(`Failed to save tracking number: ${trackingErr instanceof Error ? trackingErr.message : String(trackingErr)}`);
+          return;
+        }
+      }
+
+      const shippedPayload = buildOrderEmailPayloadFromRecord(found, { email_type: "shipped", tracking_number: trackingNumber });
       if (!shippedPayload) {
         alert("Could not build shipped email payload.");
         return;
@@ -3584,24 +3583,50 @@ async function renderOrdersTab() {
       buttonNode.disabled = true;
       buttonNode.textContent = "Sending...";
       try {
-        fetch(CATALOG_API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mode: "update_order_status",
-            order_id: orderId,
-            status: found.status || "shipped",
-            shipping_id: shippingId
-          })
-        }).catch((err) => console.warn("Could not update shipping ID in database:", err));
-
         await sendOrderEmailSecure(shippedPayload);
-        alert(`Shipped email sent for order #${orderId}.${shippingId ? ` (Shipping ID: ${shippingId})` : ""}`);
+        alert(`Shipped email sent for order #${orderId}.`);
       } catch (mailErr) {
         alert(`Could not send shipped email: ${mailErr instanceof Error ? mailErr.message : String(mailErr)}`);
       } finally {
         buttonNode.disabled = false;
         buttonNode.textContent = originalText || "Send Shipped Mail";
+      }
+    });
+  });
+
+  document.querySelectorAll(".save-tracking-btn").forEach((buttonNode) => {
+    buttonNode.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const orderId = buttonNode.getAttribute("data-order-id");
+      if (!orderId) return;
+
+      const trackingInput = document.getElementById("trackingNumberInput");
+      const trackingNumber = trackingInput ? String(trackingInput.value || "").trim() : "";
+
+      const originalText = buttonNode.textContent;
+      buttonNode.disabled = true;
+      buttonNode.textContent = "Saving...";
+
+      try {
+        const res = await fetch(CATALOG_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "update_order_tracking",
+            order_id: orderId,
+            tracking_number: trackingNumber
+          })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
+        if (found) found.tracking_number = trackingNumber;
+        alert(`Tracking number saved for order #${orderId}.`);
+      } catch (err) {
+        alert(`Failed to save tracking number: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        buttonNode.disabled = false;
+        buttonNode.textContent = originalText || "Save Tracking";
       }
     });
   });

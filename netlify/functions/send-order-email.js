@@ -179,7 +179,7 @@ function buildShippedEmailHtml(payload, toEmail) {
   const customerName = escapeHtml(payload.customer_name || "");
   const customerAddress = escapeHtml(payload.address || "");
   const shippingMethod = escapeHtml(payload.shipping_method || "Standard Shipping");
-  const shippingId = escapeHtml(payload.shipping_id || payload.tracking_id || "");
+  const trackingNumber = escapeHtml(payload.tracking_number || "");
   const createdUtc = new Date(payload.created_utc || payload.created_at || Date.now()).toLocaleString("en-NZ", {
     timeZone: "Pacific/Auckland",
     day: "numeric",
@@ -213,10 +213,10 @@ function buildShippedEmailHtml(payload, toEmail) {
     `<p style="margin:0 0 12px;font-size:14px;color:#4e3a2a;">Hi ${customerName || "there"}, your order is now on the way.</p>`,
     '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #efe3d5;border-radius:12px;background:#fffaf4;">',
     `<tr><td style="padding:12px 16px;font-size:14px;color:#5f4836;"><strong>Order ID:</strong> ${orderId}</td></tr>`,
-    ...(shippingId ? [`<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Shipping ID:</strong> ${shippingId}</td></tr>`] : []),
     `<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Email:</strong> ${escapeHtml(toEmail)}</td></tr>`,
     `<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Delivery Address:</strong> ${customerAddress}</td></tr>`,
     `<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Shipping Method:</strong> ${shippingMethod}</td></tr>`,
+    trackingNumber ? `<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Tracking Number:</strong> <span style="font-weight:700;color:#1f3b18;">${trackingNumber}</span></td></tr>` : "",
     `<tr><td style="padding:0 16px 12px;font-size:14px;color:#5f4836;"><strong>Placed At:</strong> ${escapeHtml(createdUtc)}</td></tr>`,
     "</table>",
     '<h2 style="margin:18px 0 10px;font-size:17px;color:#24190f;">Items in this shipment</h2>',
@@ -337,7 +337,7 @@ exports.handler = async (event) => {
         shipping_method: String(payload.shipping_method || "Standard Shipping"),
         shipping_cost: Number(payload.shipping_cost || 0),
         total: Number(payload.total || 0),
-        status: "completed",
+        status: "pending",
         created_at: payload.created_utc || new Date().toISOString()
       }]);
 
@@ -415,6 +415,8 @@ exports.handler = async (event) => {
         `Order ID: ${payload.order_id}`,
         `Customer: ${payload.customer_name}`,
         `Customer email: ${toEmail}`,
+        `Shipping Method: ${payload.shipping_method || "Standard Shipping"}`,
+        ...(payload.tracking_number ? [`Tracking Number: ${payload.tracking_number}`] : []),
         "",
         "Good news: your order has been shipped.",
         "",

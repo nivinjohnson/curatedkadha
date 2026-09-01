@@ -162,7 +162,7 @@ exports.handler = async (event) => {
         shipping_method: String(order_payload?.shipping_method || "Standard Shipping"),
         shipping_cost: Number(order_payload?.shipping_cost || shipping_cost || 0),
         total: Number(order_payload?.total || 0),
-        status: "pending_payment",
+        status: "pending",
         created_at: order_payload?.created_utc || new Date().toISOString()
       }]);
 

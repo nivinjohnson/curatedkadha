@@ -42,6 +42,7 @@ function buildOrderEmailPayloadFromRecord(order) {
     items_total: Number(order.items_total || order.total || 0),
     shipping_method: String(order.shipping_method || "Standard Shipping"),
     shipping_cost: Number(order.shipping_cost || 0),
+    tracking_number: String(order.tracking_number || "").trim(),
     total: Number(order.total || 0),
     items: normalizedItems,
     skip_db_updates: true
@@ -255,7 +256,7 @@ exports.handler = async (event) => {
     if (order) {
       const { error: statusUpdateError } = await supabase
         .from("orders")
-        .update({ status: "completed" })
+        .update({ status: "pending" })
         .eq("order_id", order.order_id);
 
       if (statusUpdateError) {
@@ -273,7 +274,7 @@ exports.handler = async (event) => {
         shipping_method: String(emailPayload.shipping_method || "Standard Shipping"),
         shipping_cost: Number(emailPayload.shipping_cost || 0),
         total: Number(emailPayload.total || 0),
-        status: "completed",
+        status: "pending",
         created_at: emailPayload.created_utc || new Date().toISOString()
       }]);
 

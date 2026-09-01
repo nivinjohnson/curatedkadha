@@ -479,8 +479,10 @@ function renderError(message) {
 }
 
 function ensureRoute() {
+  const isDesktopView = typeof window !== "undefined" && window.matchMedia("(min-width: 992px)").matches;
+  const defaultRoute = isDesktopView ? "#/products" : "#/home";
   if (!location.hash || location.hash === "#") {
-    location.hash = "#/home";
+    location.hash = defaultRoute;
   }
 }
 

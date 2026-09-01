@@ -4,8 +4,26 @@ const { createClient } = require("@supabase/supabase-js");
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
+function decodeJwtPayload(token) {
+  try {
+    const parts = String(token || "").split(".");
+    if (parts.length < 2) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function isServiceRoleKey(key) {
+  const payload = decodeJwtPayload(key);
+  return Boolean(payload && payload.role === "service_role");
+}
+
 function getSupabaseClient() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  if (!isServiceRoleKey(SUPABASE_SERVICE_ROLE_KEY)) return null;
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 }
 
@@ -33,6 +51,13 @@ exports.handler = async (event) => {
 
   if (!process.env.STRIPE_SECRET_KEY) {
     return json(500, { ok: false, error: "Stripe API key is not configured in environment variables (STRIPE_SECRET_KEY missing)." });
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !isServiceRoleKey(SUPABASE_SERVICE_ROLE_KEY)) {
+    return json(500, {
+      ok: false,
+      error: "Supabase service role configuration is invalid. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (service_role key)."
+    });
   }
 
   let payload;
@@ -96,29 +121,34 @@ exports.handler = async (event) => {
     });
 
     const supabase = getSupabaseClient();
-    if (supabase) {
-      const { error: orderInsertError } = await supabase.from("orders").insert([{
-        order_id: String(order_payload?.order_id || ""),
-        customer_name: String(order_payload?.customer_name || ""),
-        customer_email: String(customer_email || ""),
-        customer_phone: String(order_payload?.customer_phone || ""),
-        address: String(order_payload?.address || ""),
-        items: Array.isArray(order_payload?.items) ? order_payload.items : [],
-        items_total: Number(order_payload?.items_total || order_payload?.total || 0),
-        shipping_method: String(order_payload?.shipping_method || "Standard Shipping"),
-        shipping_cost: Number(order_payload?.shipping_cost || shipping_cost || 0),
-        total: Number(order_payload?.total || 0),
-        status: "pending_payment",
-        created_at: order_payload?.created_utc || new Date().toISOString()
-      }]);
+    if (!supabase) {
+      return json(500, {
+        ok: false,
+        error: "Supabase service client unavailable. Cannot create Stripe session safely."
+      });
+    }
 
-      if (orderInsertError) {
-        if (String(orderInsertError.code || "") === "23505") {
-          return json(409, { ok: false, error: "Duplicate order ID. Please place the order again." });
-        }
-        console.error("Failed to persist pending order before Stripe redirect:", orderInsertError);
-        return json(500, { ok: false, error: "Could not save pending order. Please try again." });
+    const { error: orderInsertError } = await supabase.from("orders").insert([{
+      order_id: String(order_payload?.order_id || ""),
+      customer_name: String(order_payload?.customer_name || ""),
+      customer_email: String(customer_email || ""),
+      customer_phone: String(order_payload?.customer_phone || ""),
+      address: String(order_payload?.address || ""),
+      items: Array.isArray(order_payload?.items) ? order_payload.items : [],
+      items_total: Number(order_payload?.items_total || order_payload?.total || 0),
+      shipping_method: String(order_payload?.shipping_method || "Standard Shipping"),
+      shipping_cost: Number(order_payload?.shipping_cost || shipping_cost || 0),
+      total: Number(order_payload?.total || 0),
+      status: "pending_payment",
+      created_at: order_payload?.created_utc || new Date().toISOString()
+    }]);
+
+    if (orderInsertError) {
+      if (String(orderInsertError.code || "") === "23505") {
+        return json(409, { ok: false, error: "Duplicate order ID. Please place the order again." });
       }
+      console.error("Failed to persist pending order before Stripe redirect:", orderInsertError);
+      return json(500, { ok: false, error: "Could not save pending order. Please try again." });
     }
 
     return json(200, { ok: true, url: session.url, sessionId: session.id });

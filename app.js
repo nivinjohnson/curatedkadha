@@ -633,7 +633,14 @@ async function finalizeStripeOrderFromReturn(rawRoute, path) {
     markStripeSessionFinalized(sessionId);
     clearCart();
     state.orderSuccessMessage = `Payment completed. Your order #${data.order_id || ""} is confirmed.`;
+    try {
+      state.products = await loadCatalog({ forceReload: true });
+      saveCatalogCache(state.products);
+    } catch {
+      // Keep current catalog if immediate refresh fails.
+    }
     renderStripePaymentStatusBanner();
+    renderRoute();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     state.orderSuccessMessage = `Payment was successful, but order finalization failed: ${msg}`;
@@ -654,13 +661,7 @@ function loadCatalogCache() {
     return [];
   }
 
-  return payload.products.map(normalizeCatalogProduct).map((product) => {
-    const parsed = categorizeDescription(product.description || product.dress_description || "");
-    const parsedMentions = splitSizes(parsed.sizeMentions);
-    const parsedSold = splitSizes(parsed.soldSizes);
-    if (parsedMentions.length === 0) return product;
-    return { ...product, size_mentions: parsedMentions.join(";"), sold_sizes: parsedSold.join(";") };
-  });
+  return payload.products.map(normalizeCatalogProduct);
 }
 
 function saveCatalogCache(products) {
@@ -2096,8 +2097,10 @@ function renderProductDetails(productId) {
   const parsedProductText = categorizeDescription(product.description || product.dress_description || "");
   const parsedMentions = splitSizes(parsedProductText.sizeMentions);
   const parsedSold = splitSizes(parsedProductText.soldSizes);
-  const effectiveMentions = parsedMentions.length ? parsedMentions : splitSizes(product.size_mentions);
-  const effectiveSold = parsedSold.length ? parsedSold : splitSizes(product.sold_sizes);
+  const dbMentions = splitSizes(product.size_mentions);
+  const dbSold = splitSizes(product.sold_sizes);
+  const effectiveMentions = dbMentions.length ? dbMentions : parsedMentions;
+  const effectiveSold = dbSold.length ? dbSold : parsedSold;
   const mentionedSizes = new Set(effectiveMentions);
   const soldSizes = new Set(effectiveSold);
 
@@ -4108,7 +4111,24 @@ function imageUrl(fileName) {
   if (!fileName) {
     return "";
   }
-  return `pictures_from_insta/${encodeURIComponent(fileName)}`;
+  const raw = String(fileName).trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
+  if (/^data:/i.test(raw)) {
+    return raw;
+  }
+  if (raw.startsWith("pictures_from_insta/")) {
+    return raw
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+  }
+
+  const normalized = raw.split(/[\\/]+/).filter(Boolean);
+  if (normalized.length === 0) return "";
+  return `pictures_from_insta/${normalized.map((segment) => encodeURIComponent(segment)).join("/")}`;
 }
 
 function escapeHtml(value) {

@@ -26,17 +26,18 @@ function toBase64Utf8(value) {
   return Buffer.from(String(value || ""), "utf8").toString("base64");
 }
 
-function buildWebhookOrderMetadata(orderPayload) {
+function buildWebhookOrderMetadata(orderPayload, checkoutItems = []) {
   const safePayload = orderPayload && typeof orderPayload === "object" ? orderPayload : {};
+  const safeCheckoutItems = Array.isArray(checkoutItems) ? checkoutItems : [];
   const compactItems = Array.isArray(safePayload.items)
-    ? safePayload.items.map((item) => ({
+    ? safePayload.items.map((item, index) => ({
       group_id: String(item.group_id || ""),
       title: String(item.title || "Item"),
       size: String(item.size || ""),
       qty: Number(item.qty || 1),
       price: Number(item.price || 0),
       line_total: Number(item.line_total || 0),
-      image_url: String(item.image_url || "")
+      image_url: String(item.image_url || safeCheckoutItems[index]?.image_url || "")
     }))
     : [];
 
@@ -145,7 +146,7 @@ exports.handler = async (event) => {
       customer_email: customer_email || undefined,
       success_url: `${origin}/#/shop?session_id={CHECKOUT_SESSION_ID}&order_success=1`,
       cancel_url: `${origin}/#/cart`,
-      metadata: buildWebhookOrderMetadata(order_payload)
+      metadata: buildWebhookOrderMetadata(order_payload, items)
     });
 
     const supabase = getSupabaseClient();
@@ -156,7 +157,7 @@ exports.handler = async (event) => {
         customer_email: String(customer_email || ""),
         customer_phone: String(order_payload?.customer_phone || ""),
         address: String(order_payload?.address || ""),
-        items: Array.isArray(order_payload?.items) ? order_payload.items : [],
+        items: Array.isArray(items) ? items : (Array.isArray(order_payload?.items) ? order_payload.items : []),
         items_total: Number(order_payload?.items_total || order_payload?.total || 0),
         shipping_method: String(order_payload?.shipping_method || "Standard Shipping"),
         shipping_cost: Number(order_payload?.shipping_cost || shipping_cost || 0),

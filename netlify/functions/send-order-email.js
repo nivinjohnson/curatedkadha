@@ -44,6 +44,23 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function resolveEmailImageUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw) || /^data:/i.test(raw)) {
+    return raw;
+  }
+  const siteBase = String(process.env.ORDER_SITE_URL || process.env.SITE_URL || process.env.URL || "").trim();
+  if (!siteBase) {
+    return raw;
+  }
+  try {
+    return new URL(raw, siteBase.endsWith("/") ? siteBase : `${siteBase}/`).toString();
+  } catch {
+    return raw;
+  }
+}
+
 function buildOrderEmailHtml(payload, toEmail) {
   const items = Array.isArray(payload.items) ? payload.items : [];
   const itemRows = items.map((row) => {
@@ -52,7 +69,7 @@ function buildOrderEmailHtml(payload, toEmail) {
     const qty = Number(row.qty || 0);
     const unitPrice = Number(row.price || 0);
     const lineTotal = Number(row.line_total || 0);
-    const imageUrl = String(row.image_url || "").trim();
+    const imageUrl = resolveEmailImageUrl(row.image_url || row.image || "");
     const imageBlock = imageUrl
       ? `<img src="${escapeHtml(imageUrl)}" alt="${title}" style="width:100%;max-width:120px;height:120px;object-fit:cover;border-radius:12px;border:1px solid #eadccc;display:block;" />`
       : '<div style="width:100%;max-width:120px;height:120px;border-radius:12px;border:1px solid #eadccc;background:#f6efe6;color:#8b6f4e;display:flex;align-items:center;justify-content:center;font-size:12px;">No image</div>';

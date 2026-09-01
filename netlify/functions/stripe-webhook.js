@@ -40,6 +40,16 @@ function getSupabaseClient() {
 
 function buildOrderEmailPayloadFromRecord(order) {
   if (!order || typeof order !== "object") return null;
+  const normalizedItems = Array.isArray(order.items)
+    ? order.items.map((item) => {
+      const normalized = item && typeof item === "object" ? { ...item } : {};
+      if (!normalized.image_url && normalized.image) {
+        normalized.image_url = String(normalized.image);
+      }
+      return normalized;
+    })
+    : [];
+
   return {
     order_id: String(order.order_id || "").trim(),
     created_utc: order.created_at || new Date().toISOString(),
@@ -51,7 +61,7 @@ function buildOrderEmailPayloadFromRecord(order) {
     shipping_method: String(order.shipping_method || "Standard Shipping"),
     shipping_cost: Number(order.shipping_cost || 0),
     total: Number(order.total || 0),
-    items: Array.isArray(order.items) ? order.items : [],
+    items: normalizedItems,
     skip_db_updates: true
   };
 }

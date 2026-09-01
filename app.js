@@ -633,10 +633,11 @@ async function finalizeStripeOrderFromReturn(rawRoute, path) {
     markStripeSessionFinalized(sessionId);
     clearCart();
     state.orderSuccessMessage = `Payment completed. Your order #${data.order_id || ""} is confirmed.`;
-    alert(state.orderSuccessMessage);
+    renderStripePaymentStatusBanner();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    alert(`Payment was successful, but order finalization failed: ${msg}`);
+    state.orderSuccessMessage = `Payment was successful, but order finalization failed: ${msg}`;
+    renderStripePaymentStatusBanner(true);
   } finally {
     state.stripeFinalizeInFlight = false;
     state.stripeFinalizeSessionId = "";
@@ -1521,6 +1522,7 @@ function renderShop() {
           <p>${filtered.length} products found</p>
           <button class="secondary" id="shopNavCartBtn" type="button" aria-label="Open cart" title="Open cart"><span aria-hidden="true">🛒</span> <span class="cart-pill-count" data-cart-count>0</span></button>
         </div>
+        <div id="stripePaymentStatusBanner">${state.orderSuccessMessage ? `<p class="notice">${escapeHtml(state.orderSuccessMessage)}</p>` : ""}</div>
         <div id="shopGrid" class="grid"></div>
         <div id="shopLoadMoreWrap" class="field"></div>
       </section>
@@ -1538,6 +1540,16 @@ function renderShop() {
   if (state.isCartModalOpen) {
     openCartModal();
   }
+}
+
+function renderStripePaymentStatusBanner(isError = false) {
+  const bannerRoot = document.getElementById("stripePaymentStatusBanner");
+  if (!bannerRoot) return;
+  if (!state.orderSuccessMessage) {
+    bannerRoot.innerHTML = "";
+    return;
+  }
+  bannerRoot.innerHTML = `<p class="notice${isError ? " error" : ""}">${escapeHtml(state.orderSuccessMessage)}</p>`;
 }
 
 function renderAbout() {

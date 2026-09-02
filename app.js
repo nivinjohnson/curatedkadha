@@ -3565,7 +3565,17 @@ async function renderOrdersTab() {
               tracking_number: trackingNumber
             })
           });
-          if (!trackingRes.ok) throw new Error(`HTTP ${trackingRes.status}`);
+          if (!trackingRes.ok) {
+            let detail = `HTTP ${trackingRes.status}`;
+            try {
+              const failure = await trackingRes.json();
+              if (failure && failure.error) detail = `${detail}: ${failure.error}`;
+            } catch {
+              const text = await trackingRes.text();
+              if (text) detail = `${detail}: ${text}`;
+            }
+            throw new Error(detail);
+          }
           found.tracking_number = trackingNumber;
         } catch (trackingErr) {
           alert(`Failed to save tracking number: ${trackingErr instanceof Error ? trackingErr.message : String(trackingErr)}`);
@@ -3617,7 +3627,17 @@ async function renderOrdersTab() {
             tracking_number: trackingNumber
           })
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try {
+            const failure = await res.json();
+            if (failure && failure.error) detail = `${detail}: ${failure.error}`;
+          } catch {
+            const text = await res.text();
+            if (text) detail = `${detail}: ${text}`;
+          }
+          throw new Error(detail);
+        }
 
         const found = state.ordersList.find((o) => String(o.order_id) === String(orderId));
         if (found) found.tracking_number = trackingNumber;

@@ -316,6 +316,22 @@ body {
   animation: rise-in 220ms ease;
 }
 
+.initial-loader {
+  min-height: clamp(280px, 62vh, 680px);
+  display: grid;
+  place-items: center;
+  animation: initial-loader-fade 260ms ease;
+}
+
+@keyframes initial-loader-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;
@@ -465,6 +481,28 @@ p {
   animation: ck-spin 0.8s ease-in-out infinite;
   vertical-align: middle;
   margin-right: 6px;
+}
+
+.spinner-initial {
+  width: 52px;
+  height: 52px;
+  border-width: 4px;
+  border-color: rgba(123, 145, 111, 0.25);
+  border-top-color: var(--brand);
+  margin-right: 0;
+  box-shadow: 0 6px 20px rgba(31, 29, 26, 0.08);
+  animation: ck-spin 0.8s ease-in-out infinite, initial-spinner-pop 380ms ease;
+}
+
+@keyframes initial-spinner-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes ck-spin {

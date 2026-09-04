@@ -1248,6 +1248,7 @@ function parseImageFiles(value) {
 function normalizeCatalogProduct(product) {
   const normalized = { ...product };
   normalized.group_id = String(normalized.group_id || "").trim();
+  normalized.dress_description = String(normalized.dress_description || "");
   normalized.image_files = Array.isArray(normalized.image_files)
     ? normalized.image_files.filter(Boolean)
     : parseImageFiles(normalized.image_files);
@@ -4028,6 +4029,7 @@ function renderStockEditor(filteredRows) {
   const availableDefault = SIZE_ORDER.filter((size) => mentions.has(size) && !sold.has(size));
   const soldDefault = SIZE_ORDER.filter((size) => sold.has(size));
   const parsed = categorizeDescription(current.description);
+  const effectiveDressDescription = String(current.dress_description || parsed.dressDescription || "").trim();
   const previewFile = current.primary_image_file || current.image_files[0] || "";
   const previewUrl = imageUrl(previewFile);
   const imagePane = previewUrl
@@ -4053,8 +4055,12 @@ function renderStockEditor(filteredRows) {
           <input id="seTitle" type="text" value="${escapeHtml(current.title || "")}" />
         </div>
         <div class="field">
-          <label for="seDescription">Description</label>
-          <textarea id="seDescription" rows="8">${escapeHtml(current.description)}</textarea>
+          <label for="seDressDescription">Dress Description (shown on product page)</label>
+          <textarea id="seDressDescription" rows="6">${escapeHtml(effectiveDressDescription)}</textarea>
+        </div>
+        <div class="field">
+          <label for="seDescription">Raw Description (Instagram caption)</label>
+          <textarea id="seDescription" rows="6">${escapeHtml(current.description)}</textarea>
         </div>
 
         <div class="field">
@@ -4080,7 +4086,7 @@ function renderStockEditor(filteredRows) {
         <div class="field"><label for="seImages">Image files (semicolon separated)</label><textarea id="seImages" rows="3">${escapeHtml(current.image_files.join(";"))}</textarea></div>
 
         <h3>Auto-derived stock fields (from description)</h3>
-        <p>Dress description: ${escapeHtml(parsed.dressDescription || "")}</p>
+        <p>Dress description from parser: ${escapeHtml(parsed.dressDescription || "")}</p>
         <p>Sizes from parser: ${escapeHtml(parsed.sizeMentions || "")}</p>
         <p>Sold sizes from parser: ${escapeHtml(parsed.soldSizes || "")}</p>
 
@@ -4098,6 +4104,9 @@ function renderStockEditor(filteredRows) {
 
   document.getElementById("saveStockBtn").addEventListener("click", async () => {
     const description = document.getElementById("seDescription").value;
+    const dress_description = document.getElementById("seDressDescription")
+      ? document.getElementById("seDressDescription").value
+      : (current.dress_description || description);
     const availableSizesSelected = Array.from(document.querySelectorAll("input[data-se-available]:checked")).map((node) => node.getAttribute("data-se-available"));
     const soldSizesSelected = Array.from(document.querySelectorAll("input[data-se-sold]:checked")).map((node) => node.getAttribute("data-se-sold"));
 
@@ -4119,6 +4128,7 @@ function renderStockEditor(filteredRows) {
     const patch = {
       title,
       description,
+      dress_description,
       size_mentions: orderedMentions.join(";"),
       sold_sizes: orderedSold.join(";"),
       item_count: itemCount,

@@ -9,6 +9,7 @@ const SECURE_ORDER_API_URL = (window.CK_CONFIG && window.CK_CONFIG.secureOrderAp
   : `${location.origin}/api/send-order-email`;
 const STRIPE_SESSION_API_URL = `${location.origin}/api/create-stripe-session`;
 const STRIPE_SESSION_STATUS_API_URL = `${location.origin}/api/stripe-session-status`;
+const SHOP_PAGE_SIZE = 16;
 const FINALIZED_STRIPE_SESSIONS_KEY = "ck_finalized_stripe_sessions_v1";
 const FREE_SHIPPING_THRESHOLD = 120;
 const CATALOG_CACHE_KEY = "ck_catalog_cache_v1";
@@ -91,7 +92,7 @@ const state = {
   },
   filters: {
     sizeFilter: [],
-    stockFilter: "available",
+    stockFilter: ["available"],
     sortBy: "newest"
   },
   stockFilters: {
@@ -110,7 +111,7 @@ const state = {
   orderSuccessMessage: "",
   stripeFinalizeInFlight: false,
   stripeFinalizeSessionId: "",
-  visibleCount: 24,
+  visibleCount: SHOP_PAGE_SIZE,
   selectedProductId: "",
   selectedStockGroupId: ""
 };
@@ -208,7 +209,7 @@ function installWideScreenBannerStyles() {
     }
     .home-blank-title {
       margin: 0;
-      font-family: "Fraunces", Georgia, serif;
+      font-family: "Inter", sans-serif;
       font-size: clamp(2rem, 8.3vw, 4.25rem);
       font-weight: 600;
       line-height: 1.05;
@@ -1190,7 +1191,7 @@ async function reloadCatalogFromFile(button, messageNode) {
     state.products = await loadCatalog({ forceReload: true });
     saveCatalogCache(state.products);
     state.selectedStockGroupId = "";
-    state.visibleCount = 24;
+    state.visibleCount = SHOP_PAGE_SIZE;
     updateCartCount();
     renderRoute();
   } catch (error) {
@@ -1478,7 +1479,8 @@ function renderHome() {
 function renderShop() {
   const filtered = filterProducts();
   state.filteredProducts = filtered;
-  const selectedSize = state.filters.sizeFilter[0] || "all";
+  const selectedSizes = new Set(state.filters.sizeFilter);
+  const selectedStock = new Set(state.filters.stockFilter);
 
   app.innerHTML = `
     <section class="shop-layout">
@@ -1489,19 +1491,26 @@ function renderShop() {
           </summary>
           <div class="shop-filters-group">
             <div class="filter-field">
-              <label for="fSize" class="filter-label">Size</label>
-              <select id="fSize" class="shop-filter-select">
-                <option value="all" ${selectedSize === "all" ? "selected" : ""}>All sizes</option>
-                ${SIZE_ORDER.map((size) => `<option value="${size}" ${selectedSize === size ? "selected" : ""}>${formatSizeLabel(size)}</option>`).join("")}
-              </select>
+              <label for="fSizeDropdown" class="filter-label">Size</label>
+              <details id="fSizeDropdown" class="shop-multi-select">
+                <summary class="shop-multi-select-summary">Select sizes</summary>
+                <div class="shop-multi-select-menu" role="group" aria-label="Filter by one or more sizes">
+                  <label class="shop-check-label shop-multi-select-option shop-multi-select-option-all"><input type="checkbox" data-size-filter-all ${selectedSizes.size === 0 ? "checked" : ""} /><span>All sizes</span></label>
+                  ${SIZE_ORDER.map((size) => `<label class="shop-check-label shop-multi-select-option"><input type="checkbox" data-size-filter value="${size}" ${selectedSizes.has(size) ? "checked" : ""} /><span>${formatSizeLabel(size)}</span></label>`).join("")}
+                </div>
+              </details>
             </div>
 
             <div class="filter-field">
-              <label for="fStock" class="filter-label">Stock</label>
-              <select id="fStock" class="shop-filter-select">
-                <option value="available" ${state.filters.stockFilter === "available" ? "selected" : ""}>In Stock</option>
-                <option value="sold" ${state.filters.stockFilter === "sold" ? "selected" : ""}>Sold Out</option>
-              </select>
+              <label for="fStockDropdown" class="filter-label">Stock</label>
+              <details id="fStockDropdown" class="shop-multi-select">
+                <summary class="shop-multi-select-summary">Select stock</summary>
+                <div class="shop-multi-select-menu" role="group" aria-label="Filter by one or more stock states">
+                  <label class="shop-check-label shop-multi-select-option shop-multi-select-option-all"><input type="checkbox" data-stock-filter-all ${selectedStock.size === 0 || selectedStock.size === 2 ? "checked" : ""} /><span>All stock</span></label>
+                  <label class="shop-check-label shop-multi-select-option"><input type="checkbox" data-stock-filter value="available" ${selectedStock.has("available") ? "checked" : ""} /><span>In Stock</span></label>
+                  <label class="shop-check-label shop-multi-select-option"><input type="checkbox" data-stock-filter value="sold" ${selectedStock.has("sold") ? "checked" : ""} /><span>Sold Out</span></label>
+                </div>
+              </details>
             </div>
 
             <div class="filter-field">
@@ -1519,7 +1528,7 @@ function renderShop() {
 
       <section class="panel shop-grid-panel" id="homeProductsSection">
         <div class="shop-grid-header">
-          <p>${filtered.length} products found</p>
+          <p id="shopResultsCount">${filtered.length} products found</p>
           <button class="secondary" id="shopNavCartBtn" type="button" aria-label="Open cart" title="Open cart"><span aria-hidden="true">🛒</span> <span class="cart-pill-count" data-cart-count>0</span></button>
         </div>
         <div id="stripePaymentStatusBanner">${state.orderSuccessMessage ? `<p class="notice">${escapeHtml(state.orderSuccessMessage)}</p>` : ""}</div>
@@ -1752,6 +1761,15 @@ function runPendingHomeSectionNavigation() {
   pendingHomeSectionAttempts = 0;
 }
 
+function refreshShopResults() {
+  state.filteredProducts = filterProducts();
+  const resultsCount = document.getElementById("shopResultsCount");
+  if (resultsCount) {
+    resultsCount.textContent = `${state.filteredProducts.length} products found`;
+  }
+  renderShopGrid();
+}
+
 function bindShopFilterHandlers() {
   const wire = (selector, fn, options = {}) => {
     const node = document.querySelector(selector);
@@ -1763,17 +1781,82 @@ function bindShopFilterHandlers() {
     }
   };
 
-  wire("#fSize", (event) => {
-    const value = event.target.value;
-    state.filters.sizeFilter = value === "all" ? [] : [value];
-    state.visibleCount = 24;
-    renderShop();
+  const wireMultiSelectDropdown = (dropdownId, inputSelector, allSelector, assignFilter, collapseAllSelected = false) => {
+    const dropdown = document.getElementById(dropdownId);
+    if (!dropdown) return;
+
+    const getSelected = () => {
+      const selected = Array.from(dropdown.querySelectorAll(`${inputSelector}:checked`))
+        .map((input) => String(input.value || "").trim())
+        .filter(Boolean);
+      if (collapseAllSelected && selected.length === dropdown.querySelectorAll(inputSelector).length) {
+        return [];
+      }
+      return selected;
+    };
+
+    const allInput = dropdown.querySelector(allSelector);
+    if (allInput) {
+      allInput.addEventListener("change", () => {
+        if (allInput.checked) {
+          dropdown.querySelectorAll(inputSelector).forEach((input) => {
+            input.checked = false;
+          });
+          assignFilter([]);
+          state.visibleCount = SHOP_PAGE_SIZE;
+          refreshShopResults();
+        }
+      });
+    }
+
+    dropdown.querySelectorAll(inputSelector).forEach((node) => {
+      node.addEventListener("change", () => {
+        if (allInput && node.checked) {
+          allInput.checked = false;
+        }
+        const selected = getSelected();
+        assignFilter(selected);
+        state.visibleCount = SHOP_PAGE_SIZE;
+        refreshShopResults();
+      });
+    });
+
+    dropdown.addEventListener("toggle", () => {
+      if (!dropdown.open) return;
+      document.querySelectorAll(".shop-multi-select[open]").forEach((otherDropdown) => {
+        if (otherDropdown !== dropdown) {
+          otherDropdown.open = false;
+        }
+      });
+    });
+  };
+
+  wireMultiSelectDropdown("fSizeDropdown", "input[data-size-filter]", "input[data-size-filter-all]", (selected) => {
+    state.filters.sizeFilter = selected;
   });
-  wire("#fStock", (event) => {
-    state.filters.stockFilter = event.target.value;
-    state.visibleCount = 24;
-    renderShop();
-  });
+
+  wireMultiSelectDropdown("fStockDropdown", "input[data-stock-filter]", "input[data-stock-filter-all]", (selected) => {
+    state.filters.stockFilter = selected;
+  }, true);
+
+  if (!document.body.dataset.ckShopMultiDropdownBound) {
+    document.addEventListener("click", (event) => {
+      document.querySelectorAll(".shop-multi-select[open]").forEach((dropdown) => {
+        if (!dropdown.contains(event.target)) {
+          dropdown.open = false;
+        }
+      });
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      document.querySelectorAll(".shop-multi-select[open]").forEach((dropdown) => {
+        dropdown.open = false;
+      });
+    });
+
+    document.body.dataset.ckShopMultiDropdownBound = "1";
+  }
 
   wire("#fSort", (event) => {
     state.filters.sortBy = event.target.value;
@@ -1906,9 +1989,13 @@ function filterProducts() {
     });
   }
 
-  if (state.filters.stockFilter === "available") {
+  const selectedStock = Array.isArray(state.filters.stockFilter) ? state.filters.stockFilter : [];
+  const includesAvailable = selectedStock.includes("available");
+  const includesSold = selectedStock.includes("sold");
+
+  if (includesAvailable && !includesSold) {
     result = result.filter((item) => !isProductSoldOut(item));
-  } else if (state.filters.stockFilter === "sold") {
+  } else if (!includesAvailable && includesSold) {
     result = result.filter((item) => isProductSoldOut(item));
   }
 
@@ -2016,7 +2103,7 @@ function setupShopAutoLoad() {
         return;
       }
 
-      state.visibleCount = Math.min(state.visibleCount + 24, state.filteredProducts.length);
+      state.visibleCount = Math.min(state.visibleCount + SHOP_PAGE_SIZE, state.filteredProducts.length);
       renderShopGrid();
     },
     {
@@ -2115,17 +2202,18 @@ function renderProductDetails(productId) {
   const soldSizesList = sizes.filter((size) => soldSizes.has(size));
   const availableSizeCount = availableSizes.length;
   const fullySoldOut = sizes.length > 0 ? availableSizeCount === 0 : Number(product.item_count) === 0;
+  const soldSizesForDisplay = fullySoldOut ? sizes : soldSizesList;
   const description = String(product.dress_description || product.description || "").trim();
   const cleanTitle = String(product.title || "Untitled product")
     .replace(/^\s*sold\s*out\s*[❌✖✕x-]*\s*/i, "")
     .replace(/^\s*sold\s*[❌✖✕x-]*\s*/i, "")
     .trim() || "Product";
 
-  let selectedSize = availableSizes.length > 0 ? availableSizes[0] : (sizes[0] || "");
+  let selectedSize = fullySoldOut ? "" : (availableSizes[0] || "");
 
   const sizeMarkup = sizes.length
     ? sizes.map((size) => {
-        const sold = soldSizes.has(size);
+        const sold = fullySoldOut || soldSizes.has(size);
         const isSelected = size === selectedSize;
         return `<button type="button" class="detail-size ${sold ? "detail-size-sold" : "detail-size-avail"} ${isSelected ? "selected" : ""}" data-size="${escapeHtml(size)}" ${sold ? 'disabled aria-disabled="true" title="Sold out"' : ""}>
           <span>${escapeHtml(formatSizeLabel(size))}</span>
@@ -2264,12 +2352,12 @@ function renderProductDetails(productId) {
             <div class="detail-section-block">
               <div class="detail-section-header">
                 <strong>Sizes</strong>
-                ${soldSizesList.length > 0 ? `<span style="font-size:0.82rem; color:#853838; font-weight:600">${soldSizesList.length} size${soldSizesList.length > 1 ? "s" : ""} sold out</span>` : ""}
+                ${soldSizesForDisplay.length > 0 ? `<span style="font-size:0.82rem; color:#853838; font-weight:600">${soldSizesForDisplay.length} size${soldSizesForDisplay.length > 1 ? "s" : ""} sold out</span>` : ""}
               </div>
               <div class="detail-sizes">${sizeMarkup}</div>
-              ${soldSizesList.length > 0 ? `
+              ${soldSizesForDisplay.length > 0 ? `
                 <div class="detail-sold-banner">
-                  <strong>Sold out:</strong> ${soldSizesList.map(formatSizeLabel).join(", ")}
+                  <strong>Sold out:</strong> ${soldSizesForDisplay.map(formatSizeLabel).join(", ")}
                 </div>
               ` : ""}
               <details class="detail-size-chart-details">
@@ -3236,12 +3324,14 @@ function renderProductsTab(filtered) {
       </div>
     </article>
 
-    <article class="panel">
-      <h2>Products</h2>
-      <p>Select a product to open it in the product editor.</p>
-      <div id="stockProductTable"></div>
-    </article>
-    <article class="panel" id="stockEditorPanel"></article>
+    <section class="stock-products-editor-layout">
+      <article class="panel">
+        <h2>Products</h2>
+        <p>Select a product to open it in the product editor.</p>
+        <div id="stockProductTable"></div>
+      </article>
+      <article class="panel" id="stockEditorPanel"></article>
+    </section>
   `;
 
   const stockSyncExcelBtn = document.getElementById("stockSyncExcelBtn");
@@ -3833,12 +3923,14 @@ function renderProductsTab(filtered) {
       </div>
     </article>
 
-    <article class="panel">
-      <h2>Products</h2>
-      <p>Select a product to open it in the product editor.</p>
-      <div id="stockProductTable"></div>
-    </article>
-    <article class="panel" id="stockEditorPanel"></article>
+    <section class="stock-products-editor-layout">
+      <article class="panel">
+        <h2>Products</h2>
+        <p>Select a product to open it in the product editor.</p>
+        <div id="stockProductTable"></div>
+      </article>
+      <article class="panel" id="stockEditorPanel"></article>
+    </section>
   `;
 
   wireStockFilter("#sfStock", "stockState");

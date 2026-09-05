@@ -196,20 +196,59 @@ function installWideScreenBannerStyles() {
     .home-blank-overlay {
       width: min(94vw, 860px);
       padding: clamp(1.6rem, 3.1vw, 2.6rem);
-      border: 1px solid rgba(212, 178, 72, 0.62);
-      background: linear-gradient(180deg, rgba(20, 16, 10, 0.26) 0%, rgba(20, 16, 10, 0.52) 100%);
-      backdrop-filter: blur(1px);
+      border: 1px solid rgba(218, 188, 93, 0.4);
+      border-radius: 22px;
+      background:
+        radial-gradient(130% 90% at 10% 0%, rgba(247, 220, 126, 0.16) 0%, rgba(247, 220, 126, 0) 44%),
+        linear-gradient(160deg, rgba(28, 22, 15, 0.48) 0%, rgba(20, 16, 10, 0.56) 55%, rgba(12, 10, 7, 0.64) 100%);
+      backdrop-filter: blur(8px) saturate(120%);
+      -webkit-backdrop-filter: blur(8px) saturate(120%);
       text-align: center;
       color: #f4eee3;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+      box-shadow:
+        0 24px 56px rgba(0, 0, 0, 0.24),
+        inset 0 1px 0 rgba(255, 245, 211, 0.14);
       display: flex;
       flex-direction: column;
       gap: 0.45rem;
       align-items: center;
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      animation: homeOverlayFloat 7s ease-in-out infinite;
+    }
+    .home-blank-overlay::before {
+      content: "";
+      position: absolute;
+      inset: 1px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 236, 177, 0.12);
+      pointer-events: none;
+      z-index: -1;
+    }
+    .home-blank-overlay::after {
+      content: "";
+      position: absolute;
+      width: 56%;
+      height: 240%;
+      left: -22%;
+      top: -70%;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 240, 200, 0.14) 50%, rgba(255, 255, 255, 0) 100%);
+      transform: rotate(18deg);
+      pointer-events: none;
+      z-index: -1;
+    }
+    @keyframes homeOverlayFloat {
+      0%, 100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(-2px);
+      }
     }
     .home-blank-title {
       margin: 0;
-      font-family: "Inter", sans-serif;
+      font-family: 'Playfair Display', serif;
       font-size: clamp(2rem, 8.3vw, 4.25rem);
       font-weight: 600;
       line-height: 1.05;
@@ -226,7 +265,7 @@ function installWideScreenBannerStyles() {
     .home-blank-subtitle {
       margin: 0.3rem 0;
       color: #f4f1ea;
-      font-size: clamp(0.56rem, 2.1vw, 0.76rem);
+      font-size: clamp(0.5rem, 1.8vw, 0.68rem);
       letter-spacing: 1.5px;
       text-transform: uppercase;
       text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
@@ -238,7 +277,7 @@ function installWideScreenBannerStyles() {
       border: 0;
       background: rgba(212, 178, 72, 0.1);
       color: #d4b248;
-      font-size: clamp(0.88rem, 3.2vw, 1rem);
+      font-size: clamp(0.78rem, 2.7vw, 0.9rem);
       letter-spacing: 2.2px;
       text-transform: uppercase;
       padding: 0.72rem 1.45rem;

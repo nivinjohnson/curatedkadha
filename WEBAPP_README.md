@@ -118,10 +118,16 @@ For production hosting, deploy in either of these patterns:
 ```html
 <script>
   window.CK_CONFIG = {
-    secureOrderApiUrl: "https://your-api-host.example.com/api/send-order-email"
+    secureOrderApiUrl: "https://your-api-host.example.com/api/send-order-email",
+    stockLoginUsername: "your-stock-username",
+    stockLoginPassword: "your-stock-password"
   };
 </script>
 ```
+
+Stock login behavior:
+- The stock page (`#/stock`) validates credentials against `CK_CONFIG.stockLoginUsername` and `CK_CONFIG.stockLoginPassword`.
+- If either key is missing, login is blocked and a configuration error is shown.
 
 - Set `ORDER_ALLOW_ORIGIN` on API to your frontend origin, for example:
 

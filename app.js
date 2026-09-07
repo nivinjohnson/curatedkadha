@@ -18,6 +18,12 @@ const EDITS_KEY = "ck_stock_edits";
 const ABOUT_PHOTO_SRC = "static/Chelsi.jpeg";
 const SESSION_KEY = "ck_session";
 const SESSION_TTL_MS = 30 * 60 * 1000;
+const STOCK_LOGIN_USERNAME = (window.CK_CONFIG && window.CK_CONFIG.stockLoginUsername)
+  ? String(window.CK_CONFIG.stockLoginUsername).trim()
+  : "";
+const STOCK_LOGIN_PASSWORD = (window.CK_CONFIG && window.CK_CONFIG.stockLoginPassword)
+  ? String(window.CK_CONFIG.stockLoginPassword)
+  : "";
 const NZ_CITY_POSTCODE = {
   Auckland: "1010",
   Wellington: "6011",
@@ -799,6 +805,27 @@ function ensureSessionValidity() {
   if (isSessionExpired()) {
     clearStockSession();
   }
+}
+
+function validateStockLoginCredentials(username, password) {
+  const expectedUser = STOCK_LOGIN_USERNAME;
+  const expectedPass = STOCK_LOGIN_PASSWORD;
+
+  if (!expectedUser || !expectedPass) {
+    return {
+      ok: false,
+      reason: "Stock login is not configured. Set CK_CONFIG.stockLoginUsername and CK_CONFIG.stockLoginPassword."
+    };
+  }
+
+  if (username !== expectedUser || password !== expectedPass) {
+    return {
+      ok: false,
+      reason: "Invalid username or password."
+    };
+  }
+
+  return { ok: true, reason: "" };
 }
 
 function registerSessionActivityHooks() {
@@ -3210,6 +3237,11 @@ function renderStock() {
       const msgNode = document.getElementById("stockLoginMessage");
       if (!user || !pass) {
         if (msgNode) msgNode.innerHTML = '<p class="notice error">Please enter both username and password.</p>';
+        return;
+      }
+      const authResult = validateStockLoginCredentials(user, pass);
+      if (!authResult.ok) {
+        if (msgNode) msgNode.innerHTML = `<p class="notice error">${escapeHtml(authResult.reason)}</p>`;
         return;
       }
       startStockSession(user);

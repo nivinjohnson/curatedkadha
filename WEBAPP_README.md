@@ -119,15 +119,15 @@ For production hosting, deploy in either of these patterns:
 <script>
   window.CK_CONFIG = {
     secureOrderApiUrl: "https://your-api-host.example.com/api/send-order-email",
-    stockLoginUsername: "your-stock-username",
-    stockLoginPassword: "your-stock-password"
+    stockLoginApiUrl: "https://your-site.netlify.app/api/stock-login"
   };
 </script>
 ```
 
 Stock login behavior:
-- The stock page (`#/stock`) validates credentials against `CK_CONFIG.stockLoginUsername` and `CK_CONFIG.stockLoginPassword`.
-- If either key is missing, login is blocked and a configuration error is shown.
+- The stock page (`#/stock`) validates credentials through a server endpoint (`/api/stock-login`).
+- Configure credentials only in server environment variables: `STOCK_LOGIN_USERNAME` and `STOCK_LOGIN_PASSWORD`.
+- Do not store stock login credentials in `index.html` or any frontend JavaScript.
 
 - Set `ORDER_ALLOW_ORIGIN` on API to your frontend origin, for example:
 

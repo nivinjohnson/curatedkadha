@@ -7,6 +7,9 @@ const INSTAGRAM_SOURCE_URL = "data_from_insta/instagram_media_curatedkadha_20260
 const SECURE_ORDER_API_URL = (window.CK_CONFIG && window.CK_CONFIG.secureOrderApiUrl)
   ? String(window.CK_CONFIG.secureOrderApiUrl).trim()
   : `${location.origin}/api/send-order-email`;
+const STOCK_LOGIN_API_URL = (window.CK_CONFIG && window.CK_CONFIG.stockLoginApiUrl)
+  ? String(window.CK_CONFIG.stockLoginApiUrl).trim()
+  : `${location.origin}/api/stock-login`;
 const STRIPE_SESSION_API_URL = `${location.origin}/api/create-stripe-session`;
 const STRIPE_SESSION_STATUS_API_URL = `${location.origin}/api/stripe-session-status`;
 const SHOP_PAGE_SIZE = 16;
@@ -18,12 +21,6 @@ const EDITS_KEY = "ck_stock_edits";
 const ABOUT_PHOTO_SRC = "static/Chelsi.jpeg";
 const SESSION_KEY = "ck_session";
 const SESSION_TTL_MS = 30 * 60 * 1000;
-const STOCK_LOGIN_USERNAME = (window.CK_CONFIG && window.CK_CONFIG.stockLoginUsername)
-  ? String(window.CK_CONFIG.stockLoginUsername).trim()
-  : "";
-const STOCK_LOGIN_PASSWORD = (window.CK_CONFIG && window.CK_CONFIG.stockLoginPassword)
-  ? String(window.CK_CONFIG.stockLoginPassword)
-  : "";
 const NZ_CITY_POSTCODE = {
   Auckland: "1010",
   Wellington: "6011",
@@ -807,25 +804,33 @@ function ensureSessionValidity() {
   }
 }
 
-function validateStockLoginCredentials(username, password) {
-  const expectedUser = STOCK_LOGIN_USERNAME;
-  const expectedPass = STOCK_LOGIN_PASSWORD;
+async function validateStockLoginCredentials(username, password) {
+  try {
+    const response = await fetch(STOCK_LOGIN_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ username, password })
+    });
 
-  if (!expectedUser || !expectedPass) {
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok && payload && payload.ok) {
+      return { ok: true, reason: "" };
+    }
+
     return {
       ok: false,
-      reason: "Stock login is not configured. Set CK_CONFIG.stockLoginUsername and CK_CONFIG.stockLoginPassword."
+      reason: payload && payload.error
+        ? String(payload.error)
+        : "Unable to verify login right now."
     };
-  }
-
-  if (username !== expectedUser || password !== expectedPass) {
+  } catch {
     return {
       ok: false,
-      reason: "Invalid username or password."
+      reason: "Unable to reach stock login service."
     };
   }
-
-  return { ok: true, reason: "" };
 }
 
 function registerSessionActivityHooks() {
@@ -3231,17 +3236,27 @@ function renderStock() {
       </section>
     `;
 
-    document.getElementById("stockLoginBtn").addEventListener("click", () => {
+    document.getElementById("stockLoginBtn").addEventListener("click", async () => {
       const user = document.getElementById("stockUser").value.trim();
       const pass = document.getElementById("stockPass").value;
+      const loginBtn = document.getElementById("stockLoginBtn");
       const msgNode = document.getElementById("stockLoginMessage");
       if (!user || !pass) {
         if (msgNode) msgNode.innerHTML = '<p class="notice error">Please enter both username and password.</p>';
         return;
       }
-      const authResult = validateStockLoginCredentials(user, pass);
+      if (loginBtn) {
+        loginBtn.disabled = true;
+        loginBtn.textContent = "Checking...";
+      }
+
+      const authResult = await validateStockLoginCredentials(user, pass);
       if (!authResult.ok) {
         if (msgNode) msgNode.innerHTML = `<p class="notice error">${escapeHtml(authResult.reason)}</p>`;
+        if (loginBtn) {
+          loginBtn.disabled = false;
+          loginBtn.textContent = "Login";
+        }
         return;
       }
       startStockSession(user);

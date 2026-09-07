@@ -31,3 +31,8 @@
   from = "/api/stripe-session-status"
   to = "/.netlify/functions/stripe-session-status"
   status = 200
+
+[[redirects]]
+  from = "/api/stock-login"
+  to = "/.netlify/functions/stock-login"
+  status = 200

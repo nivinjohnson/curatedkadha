@@ -170,14 +170,14 @@ function installWideScreenBannerStyles() {
     }
     .home-blank-space {
       width: 100%;
-      min-height: 77vh;
-      min-height: 77svh;
+      min-height: 84vh;
+      min-height: 84svh;
       flex: 0 0 auto;
       position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: clamp(1.2rem, 3.5vw, 2rem);
+      padding: clamp(1.1rem, 3.2vw, 2.2rem);
       pointer-events: auto;
       margin-top: -0.8rem;
     }
@@ -197,47 +197,47 @@ function installWideScreenBannerStyles() {
       }
     }
     .home-blank-overlay {
-      width: min(94vw, 860px);
-      padding: clamp(1.6rem, 3.1vw, 2.6rem);
-      border: 1px solid rgba(218, 188, 93, 0.4);
-      border-radius: 22px;
+      width: min(92vw, 720px);
+      padding: clamp(1.15rem, 2.6vw, 1.95rem);
+      border: 1px solid rgba(223, 196, 126, 0.4);
+      border-radius: 16px;
       background:
-        radial-gradient(130% 90% at 10% 0%, rgba(247, 220, 126, 0.16) 0%, rgba(247, 220, 126, 0) 44%),
-        linear-gradient(160deg, rgba(28, 22, 15, 0.48) 0%, rgba(20, 16, 10, 0.56) 55%, rgba(12, 10, 7, 0.64) 100%);
-      backdrop-filter: blur(8px) saturate(120%);
-      -webkit-backdrop-filter: blur(8px) saturate(120%);
+        radial-gradient(128% 102% at 8% 2%, rgba(240, 212, 146, 0.2) 0%, rgba(240, 212, 146, 0) 46%),
+        linear-gradient(164deg, rgba(26, 19, 12, 0.34) 0%, rgba(17, 12, 8, 0.46) 55%, rgba(10, 8, 6, 0.58) 100%);
+      backdrop-filter: blur(6px) saturate(112%);
+      -webkit-backdrop-filter: blur(6px) saturate(112%);
       text-align: center;
-      color: #f4eee3;
+      color: #f7f0e3;
       box-shadow:
-        0 24px 56px rgba(0, 0, 0, 0.24),
-        inset 0 1px 0 rgba(255, 245, 211, 0.14);
+        0 20px 44px rgba(9, 7, 5, 0.34),
+        inset 0 1px 0 rgba(255, 246, 218, 0.2);
       display: flex;
       flex-direction: column;
-      gap: 0.45rem;
+      gap: 0.26rem;
       align-items: center;
       position: relative;
       overflow: hidden;
       isolation: isolate;
-      animation: homeOverlayFloat 7s ease-in-out infinite;
+      animation: homeOverlayFloat 9s ease-in-out infinite;
     }
     .home-blank-overlay::before {
       content: "";
       position: absolute;
       inset: 1px;
-      border-radius: 20px;
-      border: 1px solid rgba(255, 236, 177, 0.12);
+      border-radius: 14px;
+      border: 1px solid rgba(255, 236, 177, 0.2);
       pointer-events: none;
       z-index: -1;
     }
     .home-blank-overlay::after {
       content: "";
       position: absolute;
-      width: 56%;
-      height: 240%;
-      left: -22%;
-      top: -70%;
-      background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 240, 200, 0.14) 50%, rgba(255, 255, 255, 0) 100%);
-      transform: rotate(18deg);
+      width: 52%;
+      height: 220%;
+      left: -20%;
+      top: -62%;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 235, 188, 0.15) 50%, rgba(255, 255, 255, 0) 100%);
+      transform: rotate(16deg);
       pointer-events: none;
       z-index: -1;
     }
@@ -251,12 +251,13 @@ function installWideScreenBannerStyles() {
     }
     .home-blank-title {
       margin: 0;
-      font-family: 'Playfair Display', serif;
-      font-size: clamp(2rem, 8.3vw, 4.25rem);
-      font-weight: 600;
-      line-height: 1.05;
-      letter-spacing: 0.3px;
-      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 7.3vw, 3.85rem);
+      font-weight: 620;
+      line-height: 1.04;
+      letter-spacing: 1.2px;
+      color: #fff8ea;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.52);
     }
     .home-blank-caption {
       margin: 0.45rem 0 1.05rem;
@@ -266,34 +267,40 @@ function installWideScreenBannerStyles() {
       text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
     }
     .home-blank-subtitle {
-      margin: 0.3rem 0;
-      color: #f4f1ea;
-      font-size: clamp(0.5rem, 1.8vw, 0.68rem);
-      letter-spacing: 1.5px;
+      margin: 0.22rem 0;
+      color: #efe7d8;
+      font-size: clamp(0.58rem, 1.75vw, 0.76rem);
+      letter-spacing: 1.25px;
       text-transform: uppercase;
-      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.46);
     }
     .home-blank-subtitle:last-of-type {
-      margin-bottom: 1rem;
+      margin-bottom: 0.95rem;
     }
     .home-blank-cta {
-      border: 0;
-      background: rgba(212, 178, 72, 0.1);
-      color: #d4b248;
-      font-size: clamp(0.78rem, 2.7vw, 0.9rem);
-      letter-spacing: 2.2px;
+      border: 1px solid rgba(225, 195, 132, 0.7);
+      background: linear-gradient(180deg, rgba(204, 168, 100, 0.16) 0%, rgba(183, 146, 85, 0.16) 100%);
+      color: #f3deae;
+      font-size: clamp(0.74rem, 2.3vw, 0.86rem);
+      font-weight: 600;
+      letter-spacing: 1.85px;
       text-transform: uppercase;
-      padding: 0.72rem 1.45rem;
-      border-radius: 4px;
+      padding: 0.8rem 1.85rem;
+      border-radius: 999px;
       min-height: 0;
-      box-shadow: none;
-      transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+      box-shadow: 0 8px 20px rgba(13, 10, 8, 0.28);
+      transition: transform 0.22s ease, background 0.22s ease, color 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
       cursor: pointer;
     }
     .home-blank-cta:hover {
-      background: rgba(212, 178, 72, 0.18);
-      color: #f4d77d;
-      transform: translateY(-1px);
+      background: linear-gradient(180deg, rgba(223, 188, 120, 0.24) 0%, rgba(196, 156, 92, 0.24) 100%);
+      border-color: rgba(236, 208, 150, 0.92);
+      color: #fff2d0;
+      box-shadow: 0 12px 26px rgba(13, 10, 8, 0.34);
+      transform: translateY(-2px);
+    }
+    .home-blank-cta:active {
+      transform: translateY(0);
     }
     body.home-no-topbar .topbar {
       border-bottom: 0;
@@ -318,6 +325,33 @@ function installWideScreenBannerStyles() {
       min-height: 100vh;
       min-height: 100svh;
       margin-top: 0;
+    }
+    @media (max-width: 620px) {
+      .home-blank-space {
+        min-height: 100vh;
+        min-height: 100svh;
+        padding: 0.9rem 0.9rem 1.2rem;
+      }
+      .home-blank-overlay {
+        width: min(92vw, 560px);
+        padding: 1rem 0.95rem 1.15rem;
+        border-radius: 14px;
+      }
+      .home-blank-title {
+        font-size: clamp(1.75rem, 9.4vw, 2.45rem);
+        letter-spacing: 0.9px;
+      }
+      .home-blank-subtitle {
+        font-size: clamp(0.58rem, 2.75vw, 0.72rem);
+        letter-spacing: 1.1px;
+        line-height: 1.35;
+      }
+      .home-blank-cta {
+        width: 100%;
+        max-width: 296px;
+        padding: 0.74rem 1.2rem;
+        letter-spacing: 1.45px;
+      }
     }
     .about-wrap {
       margin-top: auto;
@@ -2331,7 +2365,8 @@ function renderProductDetails(productId) {
     <style>
       .product-detail-page{max-width:1220px;margin:1rem auto 2rem;padding:0 1.25rem 2.5rem}
       .product-detail-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);gap:clamp(1.75rem,4.5vw,3.5rem);align-items:start}
-      .detail-carousel{position:relative;display:grid;place-items:center;min-height:420px;overflow:hidden;border-radius:16px;background:#f5f3f1;touch-action:pan-y}
+      .product-detail-grid h1{font-family:var(--font-body);font-size:clamp(1.35rem,2.4vw,1.75rem);font-weight:600;letter-spacing:0.02em;line-height:1.3;color:#3b3128;margin:0 0 .35rem}
+      .detail-carousel{position:relative;display:grid;place-items:center;min-height:420px;overflow:hidden;border-radius:18px;background:#f5f3f1;border:1px solid #ece5db;touch-action:pan-y}
       .detail-pill-actions{position:absolute;top:12px;right:12px;z-index:10;display:flex;flex-direction:column;gap:8px}
       .detail-pill-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid rgba(0,0,0,0.09);border-radius:999px;background:rgba(255,255,255,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#332d27;box-shadow:0 2px 8px rgba(0,0,0,0.12);cursor:pointer;transition:all 0.15s ease}
       .detail-pill-btn:hover{background:#ffffff;color:#000000;transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,0.18)}
@@ -2340,7 +2375,7 @@ function renderProductDetails(productId) {
       .detail-pill-close-x{font-size:0.78rem;font-weight:700;line-height:1}
       .detail-pill-link-sym{font-size:0.78rem;line-height:1}
       .detail-carousel-image{display:block;width:100%;height:min(68vh,700px);object-fit:contain;user-select:none}
-      .detail-arrow{position:absolute;z-index:3;display:grid;place-items:center;border:0;border-radius:999px;background:rgba(255,255,255,.94);color:#231a16;box-shadow:0 6px 20px rgba(0,0,0,.2);cursor:pointer}
+      .detail-arrow{position:absolute;z-index:3;display:grid;place-items:center;padding:0;border:0;border-radius:999px;background:rgba(255,255,255,.94);color:#231a16;box-shadow:0 6px 20px rgba(0,0,0,.2);cursor:pointer}
       .detail-arrow{top:50%;width:48px;height:48px;transform:translateY(-50%);font-size:2.3rem;line-height:1}
       .detail-arrow:hover{transform:translateY(-50%) scale(1.06)}
       .detail-arrow-prev{left:14px}.detail-arrow-next{right:14px}
@@ -2350,19 +2385,20 @@ function renderProductDetails(productId) {
       .detail-thumbnails{display:flex;gap:10px;margin-top:14px;padding-bottom:4px;overflow-x:auto}
       .detail-thumb{flex:0 0 auto;padding:2px;border:2px solid transparent;border-radius:10px;background:transparent;cursor:pointer}.detail-thumb.active{border-color:var(--brand,#7b916f)}
       .detail-thumb img{display:block;width:72px;height:72px;border-radius:7px;object-fit:cover}
-      .detail-price-tag{font-size:1.65rem;font-weight:700;color:#24201c;margin:0.85rem 0 1.25rem;line-height:1.2}
-      .detail-description{font-size:1rem;white-space:pre-line;line-height:1.8;color:#3d3630;margin:0 0 1.5rem;letter-spacing:0.01em}
-      .detail-section-block{margin:1.6rem 0}
-      .detail-section-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.6rem}
-      .detail-sizes{display:flex;flex-wrap:wrap;gap:10px;margin-top:0.4rem}
-      .detail-size{display:inline-flex;align-items:center;gap:6px;min-width:48px;justify-content:center;padding:.58rem .85rem;border:1px solid #cfc8c3;border-radius:9px;background:#fff;font-weight:700;line-height:1.3}
+      .detail-price-tag{font-family:var(--font-display);font-size:2rem;font-weight:600;letter-spacing:0.01em;color:#3b3128;margin:0.6rem 0 1.35rem;line-height:1.15}
+      .detail-description{font-size:0.97rem;white-space:pre-line;line-height:1.85;color:#5a5044;margin:0 0 1.6rem;letter-spacing:0.012em}
+      .detail-section-block{margin:1.7rem 0}
+      .detail-section-header{display:flex;justify-content:space-between;align-items:baseline;gap:0.75rem;margin-bottom:0.7rem;padding-bottom:0.5rem;border-bottom:1px solid #ece5db}
+      .detail-section-header strong{font-size:0.78rem;letter-spacing:0.1em;text-transform:uppercase;color:#6d6355}
+      .detail-sizes{display:flex;flex-wrap:wrap;gap:10px;margin-top:0.55rem}
+      .detail-size{display:inline-flex;align-items:center;gap:6px;min-width:50px;justify-content:center;padding:.6rem .9rem;border:1px solid #d8d0c6;border-radius:var(--radius-pill,999px);background:#fff;font-size:.86rem;font-weight:600;letter-spacing:0.04em;line-height:1.3}
       .detail-size-sold{border-color:#e0d0cb;background:#f8ece8;color:#934638;opacity:.88;cursor:not-allowed}
       .detail-size-sold small{font-size:.62rem;text-transform:uppercase;background:#e8cfc9;color:#782c1f;padding:0.12rem 0.35rem;border-radius:4px;font-weight:700}
       .detail-size-avail{border-color:#cbd6c3;background:#f7fbf4;color:#284521}
       .detail-size-empty{color:#777;line-height:1.6}
       .detail-sold-banner{margin-top:0.9rem;padding:0.65rem 0.85rem;border-radius:8px;background:#fdf2f0;border:1px solid #f2d4ce;font-size:0.88rem;line-height:1.6;color:#802b20}
-      .detail-size-chart-details{margin-top:1.2rem;border:1px solid #e2dad2;border-radius:10px;overflow:hidden;background:#faf8f5}
-      .detail-size-chart-summary{padding:0.7rem 1rem;font-weight:600;font-size:0.9rem;color:var(--brand,#7b916f);cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;list-style:none}
+      .detail-size-chart-details{margin-top:1.25rem;border:1px solid #e7dfd5;border-radius:12px;overflow:hidden;background:#fbf8f3}
+      .detail-size-chart-summary{padding:0.8rem 1rem;font-weight:600;font-size:0.8rem;letter-spacing:0.07em;text-transform:uppercase;color:#5f6f57;cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;list-style:none}
       .detail-size-chart-summary::-webkit-details-marker{display:none}
       .detail-size-chart-summary::after{content:"▼";font-size:0.7rem;margin-left:0.5rem;transition:transform 0.2s ease}
       .detail-size-chart-details[open] .detail-size-chart-summary::after{content:"▲"}
